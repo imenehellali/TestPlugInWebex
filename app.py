@@ -6,8 +6,11 @@ from summarize import summarize_text
 from flask import Flask, redirect, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO
 from datetime import datetime
-import os, uuid, json, pathlib, shutil
+import os, uuid, json, pathlib, shutil, io, requests
 
+WEBEX_BASE = "https://webexapis.com"
+WEBEX_BASE_API = "https://webexapis.com/v1"
+WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 
 BASE_DIR = "/Users/imenhellali/Desktop/TestPlugInWebex"  # explicit, as you asked
 DATA_DIR = pathlib.Path("data")
@@ -196,6 +199,99 @@ def ingest():
         return jsonify({"ok": True, "stored": "recording_url_placeholder"}), 200
 
     return jsonify({"error": "nothing ingested"}), 400
+
+def _bearer():
+    # for dev: valid for each 12h to modify each log in
+    return os.environ.get("WEBEX_USER_TOKEN", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+
+def _admin_bearer():
+    # for org CDR: admin integration token with spark-admin:calling_cdr_read
+    return os.environ.get("WEBEX_ADMIN_TOKEN", "")
+
+@app.route("/api/calls/history")
+def api_calls_history():
+    r = requests.get(
+        f"{WEBEX_BASE}/v1/telephony/calls/history",
+        headers={"Authorization": f"Bearer {_bearer()}"},
+        timeout=10,
+    )
+    return (r.text, r.status_code, {"Content-Type": "application/json"})
+
+@app.route("/api/cdr_feed")
+def api_cdr_feed():
+    r = requests.get(
+        f"{WEBEX_BASE}/v1/reports/detailed-call-history/cdr_feed",
+        headers={"Authorization": f"Bearer {_admin_bearer()}"},
+        timeout=20,
+    )
+    return (r.text, r.status_code, {"Content-Type": "application/json"})
+
+def _wbx_headers(extra=None):
+    if not WEBEX_BEARER:
+        raise RuntimeError("Set WEBEX_BEARER env var with admin/compliance token")
+    h = {"Authorization": f"Bearer {WEBEX_BEARER}"}
+    if extra: h.update(extra)
+    return h
+
+@app.get("/api/recordings/search")
+def recordings_search():
+    """
+    Query Converged Recordings as Admin/Compliance and (optionally) filter by callSessionId.
+    GET /api/recordings/search?sessionId=UUID&from=2025-10-28T00:00:00Z&to=2025-10-29T23:59:59Z
+    """
+    session_id = request.args.get("sessionId")
+    params = {}
+    if request.args.get("from"): params["from"] = request.args["from"]
+    if request.args.get("to"):   params["to"]   = request.args["to"]
+
+    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings/admin/list",
+                     headers=_wbx_headers({"timezone": "UTC"}), params=params, timeout=20)
+    r.raise_for_status()
+    items = r.json().get("items", [])
+    if session_id:
+        items = [x for x in items if x.get("serviceData", {}).get("callSessionId") == session_id]
+    return jsonify({"items": items})
+
+@app.get("/api/recordings/<rec_id>")
+def recordings_details(rec_id):
+    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                     headers=_wbx_headers(), timeout=20)
+    return (r.text, r.status_code, {"Content-Type": "application/json"})
+
+@app.get("/api/recordings/<rec_id>/download")
+def recordings_download(rec_id):
+    # proxy the temporary direct link so the browser can save/play
+    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                        headers=_wbx_headers(), timeout=20).json()
+    url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
+    if not url:
+        return jsonify({"error": "no audioDownloadLink"}), 404
+    blob = requests.get(url, timeout=120)
+    blob.raise_for_status()
+    return app.response_class(
+        blob.content, mimetype="audio/mpeg",
+        headers={"Content-Disposition": f'attachment; filename="{rec_id}.mp3"'}
+    )
+
+@app.post("/api/recordings/<rec_id>/transcribe")
+def recordings_transcribe(rec_id):
+    # fetch audio -> save -> transcribe -> summarize -> return text
+    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                        headers=_wbx_headers(), timeout=20).json()
+    url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
+    if not url:
+        return jsonify({"error": "no audioDownloadLink"}), 404
+    audio = requests.get(url, timeout=120)
+    audio.raise_for_status()
+
+    os.makedirs("data", exist_ok=True)
+    audio_path = os.path.join("data", f"{rec_id}.mp3")
+    with open(audio_path, "wb") as f:
+        f.write(audio.content)
+
+    text = transcribe_file(audio_path)       # your stub/real ASR
+    summary = summarize_text(text)           # your stub/real summary
+    return jsonify({"text": text, "summary": summary})
 
 
 if __name__ == "__main__":
