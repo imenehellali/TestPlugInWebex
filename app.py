@@ -1,5 +1,9 @@
 # app.py — SPA with Live/History tabs, Socket.IO, and local saving on call end
-from flask import Flask, render_template, request, jsonify, send_from_directory
+import pathlib, json
+from werkzeug.utils import secure_filename
+from transcribe import transcribe_file
+from summarize import summarize_text
+from flask import Flask, redirect, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO
 from datetime import datetime
 import os, uuid, json, pathlib, shutil
@@ -7,6 +11,8 @@ import os, uuid, json, pathlib, shutil
 
 BASE_DIR = "/Users/imenhellali/Desktop/TestPlugInWebex"  # explicit, as you asked
 DATA_DIR = os.path.join(BASE_DIR, "data")
+REC_DIR = DATA_DIR / "recordings"
+REC_DIR.mkdir(parents=True, exist_ok=True)
 TRANS_DIR = os.path.join(DATA_DIR, "transcripts")
 AUDIO_DIR = os.path.join(DATA_DIR, "audio")
 pathlib.Path(TRANS_DIR).mkdir(parents=True, exist_ok=True)
@@ -30,8 +36,8 @@ def index():
     return render_template("index.html")  # single-page app with Live/History tabs
 
 @app.route("/webex_bridge.html")
-def webex_bridge():
-    return send_from_directory(BASE_DIR, "webex_bridge.html")
+def legacy_bridge():
+    return redirect("/", code=302)
 
 @app.route("/simulate", methods=["POST"])
 def simulate():
@@ -71,7 +77,7 @@ def simulate():
         "caller": entry["caller"],
         "state": state,
         "transcript": transcript
-    }, broadcast=True)
+    })
 
     # on end: persist locally
     if state == "ended":
@@ -123,23 +129,74 @@ def get_call(call_id):
 
 @app.route("/assets/<call_id>", methods=["GET"])
 def assets(call_id):
-    """Return expected local file names for this call."""
-    data = CALL_LOGS.get(call_id)
-    if not data: return jsonify({"error": "not found"}), 404
-    caller = (data.get("caller") or "unknown").replace(" ", "")
-    short  = call_id[:8]
-    stamp  = datetime.utcnow().strftime("%Y-%m-%d")
-    base   = f"{caller}_{short}_{stamp}"
+    if call_id not in CALL_LOGS:
+        return jsonify({"error": "not found"}), 404
+    post = CALL_LOGS[call_id].get("postcall", {})
     return jsonify({
-        "transcript_json": f"data/transcripts/{base}.json",
-        "transcript_txt":  f"data/transcripts/{base}.txt",
-        "audio_maybe":     f"data/audio/{base}.*"
+        "recording_path": post.get("recording_path"),
+        "recording_url": post.get("recording_url"),
+        "transcript": post.get("transcript"),
+        "summary": post.get("summary"),
     })
+
 
 # quiet favicon warnings
 @app.route("/favicon.ico")
 def favicon():
     return ("", 204)
+# 1) Webhook/ingest for a finished call to attach a recording file (or a ready transcript)
+#    You can call this from: a webhook worker, an admin tool, or curl.
+#    Accepts either: multipart form with 'file' (audio) OR JSON with 'recording_url' or 'transcript_text'.
+@app.route("/ingest", methods=["POST"])
+def ingest():
+    # Identify which call to attach this to
+    call_id = request.args.get("call_id") or (request.form.get("call_id") if request.form else None)
+    if not call_id:
+        try:
+            call_id = (request.get_json(silent=True) or {}).get("call_id")
+        except Exception:
+            call_id = None
+    if not call_id or call_id not in CALL_LOGS:
+        return jsonify({"error": "unknown call_id"}), 400
+
+    entry = CALL_LOGS[call_id]
+    caller = entry.get("caller", "unknown")
+    caller_dir = REC_DIR / secure_filename(caller)
+    caller_dir.mkdir(parents=True, exist_ok=True)
+
+    # Case A: direct transcript provided (e.g., future API gives you text)
+    j = request.get_json(silent=True)
+    if j and j.get("transcript_text"):
+        text = j["transcript_text"]
+        entry.setdefault("postcall", {})["transcript"] = text
+        entry["postcall"]["summary"] = summarize_text(text)
+        return jsonify({"ok": True, "stored": "transcript"}), 200
+
+    # Case B: file upload (audio)
+    if "file" in request.files:
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify({"error": "empty filename"}), 400
+        ext = pathlib.Path(f.filename).suffix or ".wav"
+        audio_path = caller_dir / f"{call_id}{ext}"
+        f.save(audio_path)
+
+        # Transcribe (stub for now; swap later with real ASR)
+        text = transcribe_file(str(audio_path), lang_hint=None)
+        entry.setdefault("postcall", {})["recording_path"] = str(audio_path)
+        entry["postcall"]["transcript"] = text
+        entry["postcall"]["summary"] = summarize_text(text)
+        return jsonify({"ok": True, "stored": "audio+transcript"}), 200
+
+    # Case C: JSON with a recording URL — you can download it server-side then transcribe
+    if j and j.get("recording_url"):
+        # TODO: download the URL to audio_path then call transcribe_file(audio_path)
+        # For now, just acknowledge.
+        entry.setdefault("postcall", {})["recording_url"] = j["recording_url"]
+        return jsonify({"ok": True, "stored": "recording_url_placeholder"}), 200
+
+    return jsonify({"error": "nothing ingested"}), 400
+
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000, allow_unsafe_werkzeug=True)

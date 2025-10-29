@@ -15,34 +15,50 @@
     };
   </script>
 </head>
-<!-- BEFORE </body> -->
 <script>
-  // Only runs inside Webex; harmless in a normal browser
   (async function () {
     if (!window.webex || !window.webex.Application) return;
     const app = new window.webex.Application();
     try {
       await app.onReady();
       await app.listen();
-      const last = new Map(); // debounce noisy repeats
+      const last = new Map();
+
+      function pickCaller(call) {
+        // Try multiple fields; Webex Calling can vary by client/version
+        const raw =
+          call?.caller?.phoneNumber ||
+          call?.caller?.id ||
+          call?.remoteParticipant?.callerID ||
+          call?.localParticipant?.callerID ||
+          call?.caller?.name ||
+          call?.displayName ||
+          '';
+
+        // Optional pretty mapping to a contact name
+        const mapped = (window.CONTACTS && window.CONTACTS[raw]) ? `${window.CONTACTS[raw]} (${raw})` : raw;
+        return mapped || 'Unknown';
+      }
+
       app.on('sidebar:callStateChanged', (call) => {
-        const state = (call.state || '').toLowerCase();
+        const state = (call?.state || '').toLowerCase();
         if (last.get(call.id) === state) return;
         last.set(call.id, state);
+
+        const who = pickCaller(call);
+
         fetch('/simulate', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             event: state,
             call_id: call.id,
-            caller: call.caller?.phoneNumber || call.caller?.name || ''
-            // transcript: ''  // send chunks here if/when you have them
+            caller: who,
+            transcript: ''   // live captions are not exposed by the sidebar API
           })
         }).catch(()=>{});
       });
-    } catch (e) {
-      
-    }
+    } catch {}
   })();
 </script>
 
