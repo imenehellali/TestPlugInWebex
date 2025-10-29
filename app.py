@@ -10,8 +10,13 @@ import os, uuid, json, pathlib, shutil, io, requests
 
 WEBEX_BASE = "https://webexapis.com"
 WEBEX_BASE_API = "https://webexapis.com/v1"
-WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 
+##### -------- TO MODIFY EVERY LOG IN ----------------------
+WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
+##### ------------------------------------------------------
+
+LAST_ACTIVE_BY_NUMBER = {}  # { "+4922...": "call_id" }
 BASE_DIR = "/Users/imenhellali/Desktop/TestPlugInWebex"  # explicit, as you asked
 DATA_DIR = pathlib.Path("data")
 REC_DIR = DATA_DIR / "recordings"
@@ -64,6 +69,8 @@ def simulate():
         "events": []
     })
     entry["caller"] = caller or entry["caller"]
+    if caller and caller.lower() != "unknown":
+        LAST_ACTIVE_BY_NUMBER[caller] = call_id
     if rec_url:
         entry["recording_url"] = rec_url
 
@@ -85,8 +92,19 @@ def simulate():
     # on end: persist locally
     if state == "ended":
         _persist_call_assets(call_id, entry)
+        final_text = "\n".join([e["transcript"] for e in entry["events"] if e.get("transcript")])
+        if final_text.strip():
+            _post_final_to_simulator(entry.get("caller","unknown"), final_text)
 
     return jsonify({"ok": True, "call_id": call_id})
+
+def _post_final_to_simulator(number: str, text: str):
+    base = SIMULATOR_BASE
+    if not base: return
+    try:
+        requests.post(f"{base}/transcripts", json={"number": number, "text": text}, timeout=10)
+    except Exception:
+        pass
 
 def _persist_call_assets(call_id: str, entry: dict):
     # file name like: +49221xxxxxx_<shortId>_2025-10-28.json
@@ -309,6 +327,39 @@ def people_lookup():
                      headers={"Authorization": f"Bearer {_bearer()}"},
                      timeout=10)
     return (r.text, r.status_code, {"Content-Type":"application/json"})
+
+@app.post("/api/live/transcript")
+def api_live_transcript():
+    """
+    Body: { "number": "+49...", "text": "..." }
+    Emits a call_event so the Live panel shows it immediately, creating a call_id if needed.
+    """
+    j = request.get_json(force=True)
+    number = (j.get("number") or "").strip()
+    text   = (j.get("text")   or "").strip()
+    if not number or not text:
+        return jsonify({"error":"number and text required"}), 400
+
+    call_id = LAST_ACTIVE_BY_NUMBER.get(number)
+    if not call_id:
+        # synthesize a pseudo-call so UI has somewhere to render
+        call_id = str(uuid.uuid4())
+        CALL_LOGS.setdefault(call_id, {
+            "caller": number,
+            "created": datetime.utcnow().isoformat()+"Z",
+            "events": []
+        })
+        LAST_ACTIVE_BY_NUMBER[number] = call_id
+
+    CALL_LOGS[call_id]["events"].append({
+        "timestamp": datetime.utcnow().isoformat()+"Z",
+        "state": "connected",
+        "transcript": text
+    })
+    socketio.emit("call_event", {
+        "call_id": call_id, "caller": number, "state": "connected", "transcript": text
+    })
+    return jsonify({"ok": True, "call_id": call_id})
 
 
 if __name__ == "__main__":
