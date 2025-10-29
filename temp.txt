@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AI Call History</title>
+  <style>
+    body { background:#0e1623; color:#e0e0e0; font-family:Arial,sans-serif; margin:0; }
+    header { padding:16px; font-size:20px; color:#00e0ff; border-bottom:1px solid #223; }
+    .group { padding:16px; border-bottom:1px solid #223; }
+    .caller { color:#00ddc0; font-weight:bold; }
+    .callitem { margin-top:10px; background:#162232; padding:10px; border-radius:8px; }
+    .meta { font-size:13px; color:#cbd3dc; }
+    .sum { margin-top:6px; color:#b9c3cc; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <header>AI Call History</header>
+
+  <div class="group">
+    <div class="caller">+4930123456 · Sales</div>
+    <div class="callitem">
+      <div class="meta">2025-10-27 · Handled by Imen Hallali · Intent: Sales inquiry</div>
+      <div class="sum">Topic: Billing setup for SME account
+Next steps: Send follow-up email with pricing and contract draft.</div>
+    </div>
+    <div class="callitem">
+      <div class="meta">2025-10-22 · Handled by Alex Wagner · Intent: Renewal</div>
+      <div class="sum">Topic: Subscription renewal and feature tier
+Next steps: Schedule demo for Power Pack.</div>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="caller">+33176543210 · Support</div>
+    <div class="callitem">
+      <div class="meta">2025-10-18 · Handled by Sara Lee · Intent: Technical support</div>
+      <div class="sum">Topic: Login issues
+Next steps: Password reset confirmed, MFA enabled.</div>
+    </div>
+  </div>
+</body>
+</html>

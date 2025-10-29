@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Placetel AI – Webex Bridge</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; background:#0e1623; color:#e6eefb; padding:20px }
+    .ok { color:#77cebb }
+    .warn { color:#d5b772 }
+    .err { color:#e78888 }
+    pre { background:#0b1020; padding:12px; border-radius:8px; overflow:auto }
+  </style>
+  <!-- Correct SDK v2 via CDN (documented by Cisco). Avoid 2.1.1. -->
+  <script src="https://unpkg.com/@webex/embedded-app-sdk@latest"></script>
+</head>
+<!-- webex_bridge.html (replace <body> …) -->
+<body class="oj-sm-padding-4x">
+  <div class="oj-flex oj-sm-align-items-center">
+    <button id="goLive" class="oj-button oj-sm-margin-2x">Live</button>
+    <button id="goHist" class="oj-button oj-sm-margin-2x">History</button>
+    <span id="status" class="oj-sm-margin-start-2x">Initializing…</span>
+  </div>
+  <pre id="log"></pre>
+
+<script src="https://unpkg.com/@webex/embedded-app-sdk@latest"></script>
+<script>
+  const posted = new Map();
+  const app = new (window.webex).Application();
+  app.onReady().then(async () => {
+    await app.listen();
+    app.on('sidebar:callStateChanged', (call) => {
+      const state = (call.state || '').toLowerCase();
+      const last  = posted.get(call.id);
+      if (last !== state) { posted.set(call.id, state);
+        fetch('/simulate', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            event: state,
+            call_id: call.id,
+            caller: call.caller?.phoneNumber || call.caller?.name || ''
+            // transcript: ''  ← send chunks here if you have them
+          })
+        });
+      }
+    });
+  });
+</script>
+</body>
+</html>

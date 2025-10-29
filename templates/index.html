@@ -1,0 +1,209 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Placetel AI – Calls</title>
+  <!-- head additions -->
+  <script src="https://unpkg.com/@webex/embedded-app-sdk@latest"></script>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    /* optional quick mapping for name-over-number */
+    window.CONTACTS = {
+      "+4922197590844": "Imen Hellali",
+      "+4930123456": "Maximilian Mustermann"
+    };
+  </script>
+</head>
+<!-- BEFORE </body> -->
+<script>
+  // Only runs inside Webex; harmless in a normal browser
+  (async function () {
+    if (!window.webex || !window.webex.Application) return;
+    const app = new window.webex.Application();
+    try {
+      await app.onReady();
+      await app.listen();
+      const last = new Map(); // debounce noisy repeats
+      app.on('sidebar:callStateChanged', (call) => {
+        const state = (call.state || '').toLowerCase();
+        if (last.get(call.id) === state) return;
+        last.set(call.id, state);
+        fetch('/simulate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            event: state,
+            call_id: call.id,
+            caller: call.caller?.phoneNumber || call.caller?.name || ''
+            // transcript: ''  // send chunks here if/when you have them
+          })
+        }).catch(()=>{});
+      });
+    } catch (e) {
+      
+    }
+  })();
+</script>
+
+<body class="page">
+  <div class="topbar">
+    <button id="tabLive" class="tab tab--active">Live</button>
+    <button id="tabHist" class="tab">History</button>
+  </div>
+
+  <div class="container">
+    <!-- Live view -->
+    <section id="viewLive" class="card">
+      <header class="livehdr">
+        <div class="livehdr__title" id="liveHeader">+49 xxx xxx xxx</div>
+        <div class="livehdr__sub"   id="liveSub">Waiting for call…</div>
+        <div class="badge">Live</div>
+      </header>
+
+      <div id="liveTx" class="tx hidden"></div>
+
+      <!-- skeleton placeholder (visible until the first transcript arrives) -->
+      <div id="txSkeleton" class="skeleton">
+        <div class="skeleton__line"></div>
+        <div class="skeleton__line skeleton__line--w80"></div>
+        <div class="skeleton__line skeleton__line--w60"></div>
+      </div>
+
+      <!-- idle state (no active calls) -->
+      <div id="liveIdle" class="empty hidden">
+        <img class="pulse" src="/static/bot.png" alt="AI bot">
+        <div> AI patiently waiting for calls.</div>
+      </div>
+
+      <div id="noLiveTx" class="info hidden">
+        Live transcription is not being sent. Enable your AI pipeline or Webex transcription to populate this panel in real time.
+      </div>
+    </section>
+
+    <!-- History view -->
+    <section id="viewHist" class="hidden">
+      <div id="histWrap"></div>
+      <div id="histEmpty" class="empty hidden">
+        <img class="pulse" src="/static/bot.png" alt="AI bot">
+        <div>No history yet…</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Tabs
+    const tabLive = document.getElementById('tabLive');
+    const tabHist = document.getElementById('tabHist');
+    const viewLive= document.getElementById('viewLive');
+    const viewHist= document.getElementById('viewHist');
+
+    function showLive(){
+      tabLive.classList.add('tab--active');
+      tabHist.classList.remove('tab--active');
+      viewLive.classList.remove('hidden');
+      viewHist.classList.add('hidden');
+    }
+    function showHist(){
+      tabHist.classList.add('tab--active');
+      tabLive.classList.remove('tab--active');
+      viewHist.classList.remove('hidden');
+      viewLive.classList.add('hidden');
+      loadHistory();
+    }
+    tabLive.addEventListener('click', showLive);
+    tabHist.addEventListener('click', showHist);
+
+    // Live wiring
+    const liveHeader = document.getElementById('liveHeader');
+    const liveSub    = document.getElementById('liveSub');
+    const liveTx     = document.getElementById('liveTx');
+    const liveIdle   = document.getElementById('liveIdle');
+    const noLiveTx   = document.getElementById('noLiveTx');
+    const txSkeleton = document.getElementById('txSkeleton');
+
+    let activeCalls = new Set();
+    let sawLiveText = false;
+
+    function setIdle(show){
+      liveIdle.classList.toggle('hidden', !show);
+      liveTx.classList.toggle('hidden', show);
+      txSkeleton.classList.toggle('hidden', show || sawLiveText);
+      if (show){
+        liveHeader.textContent = '';
+        liveSub.textContent    = 'Waiting for call…';
+        liveTx.textContent     = '';
+        sawLiveText = false;
+        noLiveTx.classList.add('hidden');
+      }
+    }
+    setIdle(true);
+
+    const socket = io();
+    socket.on('call_event', p => {
+      const pretty = (window.CONTACTS && window.CONTACTS[p.caller])
+        ? `${window.CONTACTS[p.caller]} (${p.caller})`
+        : (p.caller || 'Unknown');
+      liveHeader.textContent = pretty;
+
+      if (p.state === 'ended') {
+        activeCalls.delete(p.call_id);
+        setIdle(activeCalls.size === 0);
+        return;
+      }
+
+      activeCalls.add(p.call_id);
+      setIdle(false);
+      liveSub.textContent = `State: ${p.state}`;
+
+      if (p.transcript && p.transcript.trim()){
+        sawLiveText = true;
+        txSkeleton.classList.add('hidden');
+        liveTx.classList.remove('hidden');
+        liveTx.textContent = (liveTx.textContent ? liveTx.textContent + '\n' : '') + p.transcript;
+      } else if (!sawLiveText){
+        noLiveTx.classList.remove('hidden');
+      }
+    });
+
+    // History
+    async function loadHistory(){
+      const wrap = document.getElementById('histWrap');
+      const empty= document.getElementById('histEmpty');
+      wrap.innerHTML = '';
+      empty.classList.add('hidden');
+
+      const ids = await (await fetch('/calls')).json();
+      if (!ids.length){ empty.classList.remove('hidden'); return; }
+
+      const groups = new Map(); // caller -> [call objects]
+      for (const id of ids){
+        const c = await (await fetch(`/calls/${id}`)).json();
+        const k = c.caller || 'Unknown';
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(c);
+      }
+
+      for (const [caller, arr] of groups.entries()){
+        const g = document.createElement('div'); g.className='group';
+        const h = document.createElement('div'); h.className='head'; h.textContent = caller;
+        g.appendChild(h);
+
+        for (const c of arr.sort((a,b)=>a.created.localeCompare(b.created)*-1)){
+          const it   = document.createElement('div'); it.className='item';
+          const last = c.events[c.events.length-1];
+          const meta = document.createElement('div'); meta.className='meta';
+          meta.textContent = `${c.created} | last state: ${last.state}`;
+          const sum  = document.createElement('div'); sum.className='sum';
+          const firstTx = c.events.find(e => e.transcript)?.transcript || '(no transcript)';
+          sum.textContent = firstTx;
+          it.appendChild(meta); it.appendChild(sum);
+          it.addEventListener('click', showLive);
+          g.appendChild(it);
+        }
+        wrap.appendChild(g);
+      }
+    }
+  </script>
+</body>
+</html>

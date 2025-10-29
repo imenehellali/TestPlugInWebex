@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Live Call</title>
+  <style>
+    body { background:#0e1623; color:#e6eefb; font-family:system-ui,Arial; margin:0; padding:20px }
+    .card { max-width:640px; margin:40px auto; background:#132032; border-radius:14px; padding:20px; box-shadow:0 8px 24px rgba(0,0,0,.35) }
+    .caller { font-size:20px; color:#8ad9ab }
+    .state { font-size:14px; color:#96c4e9; margin-bottom:10px }
+    .tx { background:#0b1020; border-radius:10px; padding:12px; min-height:180px; white-space:pre-wrap; overflow:auto }
+    .empty { display:flex; flex-direction:column; align-items:center; gap:12px; color:#9aa7bd; padding:60px 0 }
+    .pulse { width:96px; height:96px; animation: float 3s ease-in-out infinite }
+    @keyframes float { 0%{ transform:translateY(0) rotate(0) } 50%{ transform:translateY(-8px) rotate(5deg) } 100%{ transform:translateY(0) rotate(0) } }
+    .bar { height:6px; background:#1f334d; border-radius:999px; overflow:hidden; margin-top:10px }
+    .bar > div { height:100%; width:35%; background:#4fbcbc; animation: load 2.6s infinite }
+    @keyframes load { 0%{transform:translateX(-35%)} 50%{transform:translateX(70%)} 100%{transform:translateX(-35%)} }
+  </style>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <div class="card" id="live">
+    <div class="caller" id="caller"></div>
+    <div class="state" id="state"></div>
+    <div class="tx" id="tx"></div>
+  </div>
+  <div class="card empty" id="idle" style="display:none">
+    <img class="pulse" src="/static/bot.png" alt="AI bot">
+    <div>No active calls. The AI is calm.</div>
+    <div class="bar"><div></div></div>
+  </div>
+
+  <script>
+    const callerEl = document.getElementById('caller');
+    const stateEl  = document.getElementById('state');
+    const txEl     = document.getElementById('tx');
+    const live     = document.getElementById('live');
+    const idle     = document.getElementById('idle');
+
+    const socket = io();
+    const active = new Set();
+
+    function setIdle(showIdle) {
+      live.style.display = showIdle ? 'none' : 'block';
+      idle.style.display = showIdle ? 'block' : 'none';
+    }
+
+    socket.on('call_event', p => {
+      if (p.state === 'ended') {
+        active.delete(p.call_id);
+        setIdle(active.size === 0);
+        return;
+      }
+      active.add(p.call_id);
+      setIdle(false);
+      callerEl.textContent = p.caller || 'Unknown';
+      stateEl.textContent  = `State: ${p.state}`;
+      if (p.transcript) {
+        txEl.textContent = (txEl.textContent ? (txEl.textContent + '\n') : '') + p.transcript;
+      }
+    });
+
+    // start idle visual until first call arrives
+    setIdle(true);
+  </script>
+</body>
+</html>

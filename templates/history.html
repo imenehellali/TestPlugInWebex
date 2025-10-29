@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>History</title>
+  <style>
+    body { background:#0e1623; color:#e6eefb; font-family:system-ui,Arial; margin:0; padding:20px }
+    h2 { color:#9ad1ff }
+    .empty { display:flex; flex-direction:column; align-items:center; gap:12px; color:#9aa7bd; padding:60px 0 }
+    .pulse { width:96px; height:96px; animation: float 3s ease-in-out infinite }
+    @keyframes float { 0%{ transform:translateY(0) } 50%{ transform:translateY(-8px) } 100%{ transform:translateY(0) } }
+    .group { background:#132032; border-radius:12px; padding:14px; margin:12px 0 }
+    .head { color:#5dfc9f; font-weight:600 }
+    .item { background:#0b1020; border-radius:8px; padding:10px; margin-top:8px }
+    .meta { color:#cfe4ff; font-size:12px }
+    .sum  { color:#b9c7de; white-space:pre-wrap; margin-top:6px }
+  </style>
+</head>
+<body>
+  <h2>Call History</h2>
+  <div id="wrap"></div>
+  <div class="empty" id="empty" style="display:none">
+    <img class="pulse" src="/static/bot.png" alt="AI bot">
+    <div>No history yet. New client is calling…</div>
+  </div>
+
+  <script>
+    const wrap = document.getElementById('wrap');
+    const empty = document.getElementById('empty');
+
+    async function load() {
+      const ids = await (await fetch('/calls')).json();
+      if (!ids.length) { empty.style.display='block'; return; }
+
+      const groups = new Map(); // caller -> [calls]
+      for (const id of ids) {
+        const call = await (await fetch(`/calls/${id}`)).json();
+        const k = call.caller || 'Unknown';
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(call);
+      }
+
+      for (const [caller, arr] of groups.entries()) {
+        const g = document.createElement('div'); g.className='group';
+        const h = document.createElement('div'); h.className='head'; h.textContent = caller;
+        g.appendChild(h);
+
+        for (const c of arr.sort((a,b)=>a.created.localeCompare(b.created)*-1)) {
+          const it = document.createElement('div'); it.className='item';
+          const last = c.events[c.events.length-1];
+          const meta = document.createElement('div'); meta.className='meta';
+          meta.textContent = `${c.created} | last state: ${last.state}`;
+          const sum  = document.createElement('div'); sum.className='sum';
+          const firstTx = c.events.find(e=>e.transcript)?.transcript || '(no transcript)';
+          sum.textContent = firstTx;
+          it.appendChild(meta); it.appendChild(sum);
+          it.onclick = () => location.href = `/calls/${Array.from(arguments)[0]}`; // simple deep-link for now
+          g.appendChild(it);
+        }
+        wrap.appendChild(g);
+      }
+    }
+    load();
+  </script>
+</body>
+</html>
