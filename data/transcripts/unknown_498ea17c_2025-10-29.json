@@ -1,0 +1,46 @@
+{
+  "caller": "",
+  "created": "2025-10-29T14:58:01.740996Z",
+  "events": [
+    {
+      "timestamp": "2025-10-29T14:58:01.741008Z",
+      "state": "started",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T14:58:01.774124Z",
+      "state": "started",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T14:58:04.628718Z",
+      "state": "connecting",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T14:58:05.274994Z",
+      "state": "connected",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T15:13:59.607398Z",
+      "state": "connected",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T15:15:22.490772Z",
+      "state": "disconnecting",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T15:15:22.679072Z",
+      "state": "ended",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-29T15:15:22.679256Z",
+      "state": "disconnected",
+      "transcript": ""
+    }
+  ]
+}

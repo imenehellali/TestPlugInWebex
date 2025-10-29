@@ -29,19 +29,15 @@
   app.onReady().then(async () => {
     await app.listen();
     app.on('sidebar:callStateChanged', (call) => {
-      const state = (call.state || '').toLowerCase();
-      const last  = posted.get(call.id);
-      if (last !== state) { posted.set(call.id, state);
-        fetch('/simulate', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            event: state,
-            call_id: call.id,
-            caller: call.caller?.phoneNumber || call.caller?.name || ''
-            // transcript: ''  ← send chunks here if you have them
-          })
-        });
-      }
+    fetch('/simulate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        event: (call.state||'').toLowerCase(),
+        call_id: call.id,
+        caller: call.caller?.phoneNumber || call.caller?.name || call.remoteParticipant?.callerID || ''
+      })
+    }).catch(()=>{});
     });
   });
 </script>

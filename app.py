@@ -204,10 +204,6 @@ def _bearer():
     # for dev: valid for each 12h to modify each log in
     return os.environ.get("WEBEX_USER_TOKEN", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 
-def _admin_bearer():
-    # for org CDR: admin integration token with spark-admin:calling_cdr_read
-    return os.environ.get("WEBEX_ADMIN_TOKEN", "")
-
 @app.route("/api/calls/history")
 def api_calls_history():
     r = requests.get(
@@ -221,15 +217,15 @@ def api_calls_history():
 def api_cdr_feed():
     r = requests.get(
         f"{WEBEX_BASE}/v1/reports/detailed-call-history/cdr_feed",
-        headers={"Authorization": f"Bearer {_admin_bearer()}"},
+        headers={"Authorization": f"Bearer {_bearer()}"},
         timeout=20,
     )
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
 def _wbx_headers(extra=None):
-    if not WEBEX_BEARER:
+    if not _bearer():
         raise RuntimeError("Set WEBEX_BEARER env var with admin/compliance token")
-    h = {"Authorization": f"Bearer {WEBEX_BEARER}"}
+    h = {"Authorization": f"Bearer {_bearer()}"}
     if extra: h.update(extra)
     return h
 
@@ -252,17 +248,28 @@ def recordings_search():
         items = [x for x in items if x.get("serviceData", {}).get("callSessionId") == session_id]
     return jsonify({"items": items})
 
+@app.get("/api/calls/recordings")
+def list_recordings_by_session():
+    session_id = request.args.get("sessionId")
+    if not session_id:
+        return jsonify({"items":[]}), 200
+    # Converged Recordings supports filtering by callSessionId via query "callSessionId"
+    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings",
+                     params={"callSessionId": session_id},
+                     headers=_bearer(), timeout=20)
+    return (r.text, r.status_code, {"Content-Type":"application/json"})
+
 @app.get("/api/recordings/<rec_id>")
 def recordings_details(rec_id):
     r = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                     headers=_wbx_headers(), timeout=20)
+                     headers=_bearer(), timeout=20)
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
 @app.get("/api/recordings/<rec_id>/download")
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_wbx_headers(), timeout=20).json()
+                        headers=_bearer(), timeout=20).json()
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -277,7 +284,7 @@ def recordings_download(rec_id):
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_wbx_headers(), timeout=20).json()
+                        headers=_bearer(), timeout=20).json()
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -292,6 +299,16 @@ def recordings_transcribe(rec_id):
     text = transcribe_file(audio_path)       # your stub/real ASR
     summary = summarize_text(text)           # your stub/real summary
     return jsonify({"text": text, "summary": summary})
+
+@app.get("/api/people/lookup")
+def people_lookup():
+    number = request.args.get("number", "").strip()
+    if not number: return jsonify({}), 400
+    r = requests.get(f"{WEBEX_BASE_API}/people",
+                     params={"phoneNumber": number},
+                     headers={"Authorization": f"Bearer {_bearer()}"},
+                     timeout=10)
+    return (r.text, r.status_code, {"Content-Type":"application/json"})
 
 
 if __name__ == "__main__":
