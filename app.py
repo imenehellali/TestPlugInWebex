@@ -10,11 +10,11 @@ import os, uuid, json, pathlib, shutil
 
 
 BASE_DIR = "/Users/imenhellali/Desktop/TestPlugInWebex"  # explicit, as you asked
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = pathlib.Path("data")
 REC_DIR = DATA_DIR / "recordings"
-REC_DIR.mkdir(parents=True, exist_ok=True)
-TRANS_DIR = os.path.join(DATA_DIR, "transcripts")
-AUDIO_DIR = os.path.join(DATA_DIR, "audio")
+pathlib.Path(REC_DIR).mkdir(parents=True, exist_ok=True)
+TRANS_DIR = DATA_DIR /"transcripts"
+AUDIO_DIR = DATA_DIR /"audio"
 pathlib.Path(TRANS_DIR).mkdir(parents=True, exist_ok=True)
 pathlib.Path(AUDIO_DIR).mkdir(parents=True, exist_ok=True)
 
