@@ -40,12 +40,13 @@
 
 
 /* Transcript + placeholders */
-.tx{background:#0b1020;border-radius:10px;padding:12px;min-height:180px;white-space:pre-wrap;overflow:auto}
+.tx { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; min-height: 140px; background: #fff; }
+.tx__placeholder { color: #6b7280; }
+.tx__content { white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; }
 .live__tx {
   background:#0b1020; border-radius:12px; padding:12px; min-height:160px;
   white-space:pre-wrap; overflow:auto;
 }
-.tx--placeholder { color:#93a6c6; font-style:italic }
 .empty{display:flex;flex-direction:column;align-items:center;gap:12px;color:#9aa7bd;padding:60px 0}
 .pulse{width:96px;height:96px;animation:float 3s ease-in-out infinite}
 @keyframes float{0%{transform:translateY(0)}50%{transform:translateY(-8px)}100%{transform:translateY(0)}}

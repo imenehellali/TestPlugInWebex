@@ -18,44 +18,44 @@
 </head>
 <script>
   (async function () {
-  if (!window.webex || !window.webex.Application) return;
-  const app = new window.webex.Application();
-  await app.onReady();
-  await app.listen();
+    if (!window.webex || !window.webex.Application) return;
+    const app = new window.webex.Application();
+    await app.onReady();
+    await app.listen();
 
-  const last = new Map();
-  function pickCaller(call) {
-    // Try every field we’ve seen in the SDK payloads
-    const c = call || {};
-    return (
-      c.caller?.phoneNumber ||
-      c.caller?.callerID ||
-      c.remoteParticipant?.callerID ||
-      c.localParticipant?.callerID ||
-      c.caller?.name ||
-      c.remoteParticipant?.name ||
-      c.displayName ||
-      ''
-    );
-  }
+    const last = new Map();
+    function pickCaller(call) {
+      // Try every field we’ve seen in the SDK payloads
+      const c = call || {};
+      return (
+        c.caller?.phoneNumber ||
+        c.caller?.callerID ||
+        c.remoteParticipant?.callerID ||
+        c.localParticipant?.callerID ||
+        c.caller?.name ||
+        c.remoteParticipant?.name ||
+        c.displayName ||
+        ''
+      );
+    }
 
-  app.on('sidebar:callStateChanged', (call) => {
-    const state = (call?.state || 'unknown').toLowerCase();
-    if (last.get(call.id) === state) return;
-    last.set(call.id, state);
+    app.on('sidebar:callStateChanged', (call) => {
+      const state = (call?.state || 'unknown').toLowerCase();
+      if (last.get(call.id) === state) return;
+      last.set(call.id, state);
 
-    fetch('/simulate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        event: state,
-        call_id: call.id,
-        caller: pickCaller(call)
-        // transcript: ''  // later, forward chunks if you have them
-      })
-    }).catch(()=>{});
-  });
-})();
+      fetch('/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: state,
+          call_id: call.id,
+          caller: pickCaller(call)
+          // transcript: ''  // later, forward chunks if you have them
+        })
+      }).catch(() => { });
+    });
+  })();
 </script>
 
 <body class="page">
@@ -185,12 +185,22 @@
         return;
       }
 
+      // track call, but DO NOT leave idle until it's actually connected
       activeCalls.add(p.call_id);
-      setIdle(false);
       liveSub.textContent = `State: ${state}`;
 
-      // bars only during connected
-      liveEq.classList.toggle('eq--hidden', state !== 'connected');
+      // show bars only during connected
+      const isConnected = state === 'connected';
+      liveEq.classList.toggle('eq--hidden', !isConnected);
+
+      if (!isConnected) {
+        // stay in idle view (bot visible) until pickup
+        setIdle(true);
+        return;
+      }
+
+      // picked up -> leave idle and show transcript placeholder immediately
+      setIdle(false);
 
       if (p.transcript && p.transcript.trim()) {
         sawLiveText = true;
@@ -199,10 +209,13 @@
         liveTx.classList.remove('hidden');
         liveTx.textContent =
           (liveTx.textContent ? liveTx.textContent + '\n' : '') + p.transcript;
+        // optional: autoscroll
+        // liveTx.scrollTop = liveTx.scrollHeight;
       } else if (!sawLiveText) {
-        noLiveTx.classList.remove('hidden');
-        liveTx.classList.add('hidden');
+        // connected but no text yet -> show placeholder instead of idle icon
         txSkeleton.classList.add('hidden');
+        liveTx.classList.add('hidden');
+        noLiveTx.classList.remove('hidden');
       }
     });
 

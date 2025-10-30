@@ -12,7 +12,7 @@ WEBEX_BASE = "https://webexapis.com"
 WEBEX_BASE_API = "https://webexapis.com/v1"
 
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
-WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 ##### ------------------------------------------------------
 
@@ -220,7 +220,7 @@ def ingest():
 
 def _bearer():
     # for dev: valid for each 12h to modify each log in
-    return os.environ.get("WEBEX_USER_TOKEN", "YmZjOGRkYWMtMzBiNy00ZjVkLWFkM2YtYTFkZGE3MWMwZWFiYzBiNWYwZDYtOGFh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+    return os.environ.get("WEBEX_USER_TOKEN", "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 
 @app.route("/api/calls/history")
 def api_calls_history():
