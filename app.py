@@ -58,7 +58,9 @@ def simulate():
         return jsonify({"error": "bad request"}), 400
 
     call_id   = data.get("call_id") or str(uuid.uuid4())
-    caller    = data.get("caller", "unknown")
+    caller    = (data.get("remoteNumber") or data.get("caller") or "unknown").strip()
+    display_name = (data.get("displayName") or "").strip()
+
     state     = (data.get("event") or "unknown").lower()
     transcript= data.get("transcript", "")
     rec_url   = data.get("recording_url")  # optional, if you wire webhooks later
@@ -68,23 +70,27 @@ def simulate():
         "created": datetime.utcnow().isoformat() + "Z",
         "events": []
     })
-    entry["caller"] = caller or entry["caller"]
-    if caller and caller.lower() != "unknown":
-        LAST_ACTIVE_BY_NUMBER[caller] = call_id
+
+    if caller:
+        entry["caller"] = caller
+        if caller.lower() != "unknown":
+            LAST_ACTIVE_BY_NUMBER[caller] = call_id
+    
     if rec_url:
         entry["recording_url"] = rec_url
 
-    ev = {
+    entry["events"].append({
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "state": state,
         "transcript": transcript
-    }
-    entry["events"].append(ev)
+    })
 
     # push to live panel
     socketio.emit("call_event", {
         "call_id": call_id,
         "caller": entry["caller"],
+        "remoteNumber": caller,
+        "displayName": display_name,
         "state": state,
         "transcript": transcript
     })

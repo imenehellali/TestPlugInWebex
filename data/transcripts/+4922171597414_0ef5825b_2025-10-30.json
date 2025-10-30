@@ -1,0 +1,21 @@
+{
+  "caller": "+4922171597414",
+  "created": "2025-10-30T13:00:54.020102Z",
+  "events": [
+    {
+      "timestamp": "2025-10-30T13:00:54.020118Z",
+      "state": "started",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-30T13:00:54.638246Z",
+      "state": "disconnecting",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-30T13:00:54.641988Z",
+      "state": "ended",
+      "transcript": ""
+    }
+  ]
+}

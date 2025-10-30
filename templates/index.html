@@ -23,7 +23,37 @@
     await app.onReady();
     await app.listen();
 
-    const last = new Map();
+    const lastKey = new Map(); // call.id -> "state|remote|local|name"
+
+    function getLocalNumber(call = {}) {
+      return (
+        call.localParticipant?.phoneNumber ||
+        call.localParticipant?.callerID ||
+        call.to?.phoneNumber || call.to || '' // some SDKs use "to" for own DN
+      );
+    }
+
+    function getRemoteNumber(call = {}) {
+      const rps = Array.isArray(call.remoteParticipants)
+        ? call.remoteParticipants
+        : (call.remoteParticipant ? [call.remoteParticipant] : []);
+      const local = getLocalNumber(call);
+
+      const rp = rps.find(p => {
+        const n = p?.phoneNumber || p?.callerID || '';
+        return n && n !== local;
+      });
+
+      const candidate =
+        rp?.phoneNumber ||
+        rp?.callerID ||
+        call.from?.phoneNumber || call.from ||     // incoming often sets "from"
+        call.caller?.phoneNumber || call.caller?.callerID ||
+        call.displayName || '';
+
+      return candidate && candidate !== local ? String(candidate).trim() : '';
+    }
+    /*const last = new Map();
     function pickCaller(call) {
       // Try every field we’ve seen in the SDK payloads
       const c = call || {};
@@ -38,11 +68,12 @@
         ''
       );
     }
-
     app.on('sidebar:callStateChanged', (call) => {
       const state = (call?.state || 'unknown').toLowerCase();
       if (last.get(call.id) === state) return;
       last.set(call.id, state);
+      const remoteNumber = getRemoteNumber(call);
+      const localNumber = getLocalNumber(call);
 
       fetch('/simulate', {
         method: 'POST',
@@ -50,8 +81,34 @@
         body: JSON.stringify({
           event: state,
           call_id: call.id,
-          caller: pickCaller(call)
-          // transcript: ''  // later, forward chunks if you have them
+          caller: pickCaller(call),
+          remoteNumber,
+          localNumber,
+          displayName: call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || ''
+        })
+      }).catch(() => { });
+    });
+  })();*/
+    app.on('sidebar:callStateChanged', (call) => {
+      const state = (call?.state || 'unknown').toLowerCase();
+      const remoteNumber = getRemoteNumber(call);
+      const localNumber = getLocalNumber(call);
+      const displayName = call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || '';
+
+      // Post again if *any* of these changed, not only the state
+      const key = [state, remoteNumber, localNumber, displayName].join('|');
+      if (lastKey.get(call.id) === key) return;
+      lastKey.set(call.id, key);
+
+      fetch('/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: state,
+          call_id: call.id,
+          remoteNumber,
+          localNumber,
+          displayName
         })
       }).catch(() => { });
     });
@@ -68,8 +125,8 @@
     <!-- Live view -->
     <section id="viewLive" class="card">
       <header class="livehdr">
-        <div class="livehdr__title" id="liveHeader">Waiting for call…</div>
-        <div class="livehdr__sub" id="liveSub">Idle</div>
+        <div class="livehdr__title" id="liveHeader"></div>
+        <div class="livehdr__sub" id="liveSub"></div>
         <div class="badge">Live</div>
         <div id="liveEq" class="eq eq--hidden" aria-hidden="true">
           <div class="eq__bar"></div>
@@ -90,7 +147,7 @@
         <div>AI patiently waiting for calls.</div>
       </div>
 
-      <div id="noLiveTx" class="info hidden">No live transcript yet…</div>
+      <div id="noLiveTx" class="info hidden"> no live text …</div>
 
     </section>
 
@@ -151,7 +208,65 @@
     const txSkeleton = document.getElementById('txSkeleton');
 
     let activeCalls = new Set();
-    let sawLiveText = false;
+
+    let liveModel = null;
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function initStructuredCard({ name = '—', number = '—', email = '—', agent = '—' } = {}) {
+      liveModel = { name, number, email, agent };
+      liveTx.innerHTML = `
+    <div class="tx-card" aria-live="polite" aria-atomic="false">
+      <div class="tx-grid">
+        <div class="tx-field">
+          <div class="tx-label">Kunde</div>
+          <div id="fldName" class="tx-value">${escapeHtml(name)}</div>
+        </div>
+        <div class="tx-field">
+          <div class="tx-label">Rückrufnummer</div>
+          <div id="fldNumber" class="tx-value">${escapeHtml(number)}</div>
+        </div>
+        <div class="tx-field">
+          <div class="tx-label">Email</div>
+          <div id="fldEmail" class="tx-value">${escapeHtml(email)}</div>
+        </div>
+        <div class="tx-field">
+          <div class="tx-label">Agent</div>
+          <div id="fldAgent" class="tx-value">${escapeHtml(agent)}</div>
+        </div>
+        <div class="tx-field tx-section">
+          <div class="tx-label">Anliegen</div>
+          <ul id="listConcerns" class="tx-list" role="log"></ul>
+        </div>
+        <div class="tx-field tx-section">
+          <div class="tx-label">Tasks</div>
+          <ul id="listTasks" class="tx-list" role="log"></ul>
+        </div>
+      </div>
+    </div>
+  `;
+      // show card, hide placeholders
+      liveIdle.classList.add('hidden');
+      noLiveTx.classList.add('hidden');
+      txSkeleton.classList.add('hidden');
+      liveTx.classList.remove('hidden');
+    }
+    function addConcernLines(text) {
+      if (!text || !text.trim()) return;
+      const list = document.getElementById('listConcerns');
+      const parts = text.split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/).map(s => s.trim()).filter(Boolean);
+      for (const p of parts) {
+        const li = document.createElement('li');
+        li.textContent = p;
+        list.appendChild(li);
+      }
+      // keep scrolled to bottom
+      liveTx.scrollTop = liveTx.scrollHeight;
+    }
+
+
 
     function setIdle(isIdle) {
       if (isIdle) {
@@ -160,12 +275,9 @@
         liveTx.classList.add('hidden');        // hide transcript
         txSkeleton.classList.add('hidden');
         noLiveTx.classList.add('hidden');
-        liveHeader.textContent = 'Waiting for call…';
-        liveSub.textContent = 'Idle';
-        liveTx.textContent = '';
-        sawLiveText = false;
       } else {
         liveIdle.classList.add('hidden');      // hide bot
+
       }
     }
 
@@ -175,49 +287,56 @@
 
     socket.on('call_event', async (p) => {
       const state = (p.state || '').toLowerCase();
+      const remoteNumber = p.remoteNumber || '';
+      const displayName = p.displayName || '';
+      const labelSource = remoteNumber || displayName; // prefer number
+      liveHeader.textContent = labelSource ? await prettyCaller(labelSource) : 'Unknown';
+      liveSub.textContent = `State: ${state}`;
 
-      // show number or name
-      liveHeader.textContent = await prettyCaller(p.caller || p.name || p.displayName || '');
-
-      if (state === 'ended') {
+      // ended -> back to idle
+      if (state === 'ended' || state === 'completed' || state === 'hangup') {
+        liveModel = null;
         activeCalls.delete(p.call_id);
         setIdle(activeCalls.size === 0);
         return;
       }
 
-      // track call, but DO NOT leave idle until it's actually connected
       activeCalls.add(p.call_id);
+
+      // always print state
       liveSub.textContent = `State: ${state}`;
 
-      // show bars only during connected
+      // bars only during connected
       const isConnected = state === 'connected';
       liveEq.classList.toggle('eq--hidden', !isConnected);
+      if (!isConnected) { setIdle(true); return }
 
-      if (!isConnected) {
-        // stay in idle view (bot visible) until pickup
-        setIdle(true);
-        return;
-      }
-
-      // picked up -> leave idle and show transcript placeholder immediately
+      // leave idle
       setIdle(false);
-
-      if (p.transcript && p.transcript.trim()) {
-        sawLiveText = true;
-        txSkeleton.classList.add('hidden');
+      // when we first see this call CONNECTED, reset transcript UI and show placeholder box
+      if (!liveModel) {
+        //liveEq.classList.remove('eq--hidden');
+        liveSub.classList.add('hidden');
+        const pretty = labelSource ? await prettyCaller(labelSource) : '—';
+        const nameOnly = pretty.replace(/\s*\([^)]+\)\s*$/, '');
+        initStructuredCard({
+          name: nameOnly || '—',
+          number: remoteNumber || '—',
+          email: '—',
+          agent: '—'
+        });
+      } else {
+        liveIdle.classList.add('hidden');
         noLiveTx.classList.add('hidden');
-        liveTx.classList.remove('hidden');
-        liveTx.textContent =
-          (liveTx.textContent ? liveTx.textContent + '\n' : '') + p.transcript;
-        // optional: autoscroll
-        // liveTx.scrollTop = liveTx.scrollHeight;
-      } else if (!sawLiveText) {
-        // connected but no text yet -> show placeholder instead of idle icon
         txSkeleton.classList.add('hidden');
-        liveTx.classList.add('hidden');
-        noLiveTx.classList.remove('hidden');
+        liveTx.classList.remove('hidden');
       }
+
+      if (p.transcript && p.transcript.trim()) addConcernLines(p.transcript);
+      return;  // prevent idle fallback
+
     });
+
 
     // ---------- History (robust) ----------
     async function loadHistory() {

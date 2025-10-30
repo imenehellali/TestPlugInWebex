@@ -1,0 +1,21 @@
+{
+  "caller": "unknown",
+  "created": "2025-10-30T14:24:27.863660Z",
+  "events": [
+    {
+      "timestamp": "2025-10-30T14:24:27.863682Z",
+      "state": "started",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-30T14:24:28.491827Z",
+      "state": "disconnecting",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2025-10-30T14:24:28.508107Z",
+      "state": "ended",
+      "transcript": ""
+    }
+  ]
+}
