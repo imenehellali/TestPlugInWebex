@@ -1,109 +1,211 @@
-# simulator_api.py
-# A tiny REST API that stores transcripts per number into an Excel file,
-# can return the latest transcript, and can push a transcript to your app.
-
-from flask import Flask, request, jsonify
-import os, time, pathlib, requests
+# simulator_api.py — FIXED with correct API format
+from flask import Flask, request, jsonify, send_file
+import os, pathlib, requests
 import pandas as pd
 from datetime import datetime, timezone
 
 DATA_DIR = pathlib.Path("sim_data")
 DATA_DIR.mkdir(exist_ok=True)
 XLSX_PATH = DATA_DIR / "transcripts.xlsx"
+SENT_LOG_PATH = DATA_DIR / "sent.xlsx"
+RECEIVED_LOG_PATH = DATA_DIR / "received.xlsx"
 
 app = Flask(__name__)
 
-def load_df():
-    if XLSX_PATH.exists():
-        return pd.read_excel(XLSX_PATH, index_col=0)
+# Configuration
+SIMULATOR_API_KEY = os.environ.get("SIMULATOR_API_KEY", "BKgVaqoVuLcQNOJP9ZBYsHQspMX_p3E_9I2e5eE05Gc")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://servantlike-thermochemically-maison.ngrok-free.de").rstrip("/")
+
+def load_df(path):
+    """Load Excel file"""
+    if path.exists():
+        return pd.read_excel(path, index_col=0)
     return pd.DataFrame()
 
-def save_df(df: pd.DataFrame):
-    # index = phone number; columns = ISO timestamps; cell = transcript text
-    with pd.ExcelWriter(XLSX_PATH, engine="openpyxl", mode="w") as w:
+def save_df(df: pd.DataFrame, path):
+    """Save to Excel"""
+    df = df.fillna("")
+    with pd.ExcelWriter(path, engine="openpyxl", mode="w") as w:
         df.to_excel(w)
 
 def now_iso():
+    """Current UTC timestamp"""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-@app.post("/transcripts")
-def add_transcript():
-    """
-    Body: { "number": "+4922197580971", "text": "..." }
-    Adds a new column for this call instance (timestamped), returns column key.
-    """
-    j = request.get_json(force=True)
-    number = (j.get("number") or "").strip()
-    text   = (j.get("text")   or "").strip()
-    if not number or not text:
-        return jsonify({"error":"number and text required"}), 400
+# ============================================================================
+# WEB INTERFACE
+# ============================================================================
 
-    df = load_df()
+@app.route("/")
+def index():
+    """Serve the web interface"""
+    html_path = pathlib.Path(__file__).parent / "simulator_web.html"
+    if html_path.exists():
+        return send_file(str(html_path))
+    return '''
+    <!DOCTYPE html>
+    <html><head><title>Simulator</title></head>
+    <body>
+        <h1>Call Simulator</h1>
+        <p>Please create simulator_web.html in the same directory</p>
+        <p>Or use the API directly:</p>
+        <pre>POST /forward-call?caller_id=+49111&destination_id=+49222</pre>
+    </body></html>
+    ''', 200
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
+
+@app.post("/forward-call")
+def forward_call():
+    """
+    SIM REQ #1: Send transcript with CORRECT format
+    
+    Format: ?caller_id=+49111222333&destination_id=+4922197580971
+    Body: {
+        "transcript": {
+            "customer_first_name": "Max",
+            "customer_last_name": "Mustermann",
+            "anliegen": ["..."],
+            "next_steps": ["..."],
+            "callback_number": "+49...",
+            "email": "...",
+            "ai_agent_name": "..."
+        }
+    }
+    """
+    # Get from query params (NEW FORMAT)
+    caller_id = request.args.get("caller_id", "").strip()
+    destination_id = request.args.get("destination_id", "").strip()
+    
+    # Get transcript from body
+    j = request.get_json(force=True)
+    transcript = j.get("transcript", {})
+    
+    if not caller_id or not destination_id or not transcript:
+        return jsonify({"error": "caller_id, destination_id, and transcript required"}), 400
+
+    # Log locally
+    df = load_df(SENT_LOG_PATH)
     col = now_iso()
-    if number not in df.index:
-        df.loc[number, col] = text
-    else:
-        df.loc[number, col] = text
-    # fill NaNs with empty for nicer sheet
-    df = df.fillna("")
-    save_df(df)
-    return jsonify({"ok": True, "column": col})
+    log_entry = f"Caller: {caller_id} → Dest: {destination_id}\nSent: {col}"
+    df.loc[destination_id, col] = log_entry
+    save_df(df, SENT_LOG_PATH)
+    
+    # Forward to app with CORRECT format
+    try:
+        headers = {
+            "Authorization": f"Bearer {SIMULATOR_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Use query params + body
+        response = requests.post(
+            f"{APP_BASE_URL}/api/forward-transcript",
+            params={
+                "caller_id": caller_id,
+                "destination_id": destination_id
+            },
+            json={"transcript": transcript},
+            headers=headers,
+            timeout=10
+        )
+        
+        response.raise_for_status()
+        app_response = response.json()
+        
+        return jsonify({
+            "ok": True,
+            "caller_id": caller_id,
+            "destination_id": destination_id,
+            "forwarded_at": now_iso(),
+            "status": "pending",
+            "message": "Transcript will be shown when agent picks up",
+            "app_response": app_response
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": "Failed to forward to app",
+            "details": str(e),
+            "app_base_url": APP_BASE_URL
+        }), 502
 
-@app.get("/transcripts/<number>/latest")
-def latest(number):
-    df = load_df()
-    if number not in df.index or df.loc[number].dropna().empty:
-        return jsonify({"number": number, "text": ""})
-    # pick the rightmost non-empty column
-    row = df.loc[number]
-    latest_col = [c for c in df.columns if isinstance(row.get(c, ""), str) and row.get(c, "").strip()]
-    if not latest_col:
-        return jsonify({"number": number, "text": ""})
-    # df.columns is ordered; last is most recent
-    col = latest_col[-1]
-    return jsonify({"number": number, "text": str(row[col]), "column": col})
-
-@app.post("/push-to-app")
-def push_to_app():
+@app.post("/api/receive-transcript")
+def receive_transcript():
     """
-    Body: { "number": "...", "app_base": "https://<your-ngrok>.ngrok-free.app" }
-    Loads the latest transcript for number and POSTs it to your app.
+    SIM REQ #2: Receive completed call transcripts from app
+    
+    Format: ?caller_id=+49111&destination_id=+49222
+    Body: { "transcript": "..." }
     """
-    j = request.get_json(force=True)
-    number = (j.get("number") or "").strip()
-    app_base = (j.get("app_base") or "").rstrip("/")
-    if not number or not app_base:
-        return jsonify({"error":"number and app_base required"}), 400
-    r = app.test_client().get(f"/transcripts/{number}/latest")
-    payload = r.get_json()
-    text = payload.get("text","")
-    if not text:
-        return jsonify({"error":"no transcript for number"}), 404
-    # send to your app
-    resp = requests.post(f"{app_base}/api/live/transcript",
-                         json={"number": number, "text": text, "ts": now_iso()},
-                         timeout=10)
-    return jsonify({"app_status": resp.status_code, "app_text": resp.text})
+    # Verify bearer token
+    hdr = request.headers.get("Authorization", "")
+    token = hdr[7:] if hdr.startswith("Bearer ") else hdr
+    if not token or token != SIMULATOR_API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
 
-@app.post("/bootstrap-example")
-def bootstrap():
-    """Generate example data for +4922197580971 with a few columns, keep only last when pushing."""
-    number = "+4922197580971"
-    df = load_df()
-    samples = [
-        "Hallo, ich habe Fragen zu meinem Konto.",
-        "Können Sie mir beim Passwort helfen?",
-        "Ich möchte ein Angebot besprechen."
-    ]
-    cols = []
-    for s in samples:
-        ts = now_iso()
-        cols.append(ts)
-        df.loc[number, ts] = s
-        time.sleep(0.3)
-    save_df(df.fillna(""))
-    return jsonify({"ok": True, "number": number, "columns": cols})
+    caller_id = request.args.get("caller_id", "").strip()
+    destination_id = request.args.get("destination_id", "").strip()
+    body = request.get_json(force=True)
+    transcript = body.get("transcript", "")
+    
+    if not caller_id or not destination_id:
+        return jsonify({"error": "caller_id and destination_id required"}), 400
+
+    # Log received transcript
+    df = load_df(RECEIVED_LOG_PATH)
+    col = now_iso()
+    log_entry = f"Caller: {caller_id} → Dest: {destination_id}\nReceived: {col}\nTranscript: {transcript}"
+    df.loc[destination_id, col] = log_entry
+    save_df(df, RECEIVED_LOG_PATH)
+    
+    print(f"✅ Received transcript back:")
+    print(f"   Caller: {caller_id}")
+    print(f"   Destination: {destination_id}")
+    print(f"   Transcript: {transcript[:100]}...")
+    
+    return jsonify({
+        "ok": True,
+        "caller_id": caller_id,
+        "destination_id": destination_id,
+        "received_at": col,
+        "message": "Transcript received and logged"
+    })
+
+@app.get("/health")
+def health():
+    """Health check"""
+    return jsonify({
+        "status": "healthy",
+        "service": "call-simulator",
+        "api_key_configured": bool(SIMULATOR_API_KEY),
+        "app_base_url": APP_BASE_URL,
+        "sent_count": len(load_df(SENT_LOG_PATH)),
+        "received_count": len(load_df(RECEIVED_LOG_PATH))
+    })
+
+@app.get("/logs")
+def logs():
+    """View sent and received logs"""
+    sent = load_df(SENT_LOG_PATH).to_dict()
+    received = load_df(RECEIVED_LOG_PATH).to_dict()
+    
+    return jsonify({
+        "sent": sent,
+        "received": received
+    })
+
+# ============================================================================
+# STARTUP
+# ============================================================================
 
 if __name__ == "__main__":
-    # Run on 7000, then:  ngrok http 7000
-    app.run(host="0.0.0.0", port=7000)
+    print(f"API Key: {'✓' if SIMULATOR_API_KEY else '✗'}")
+    print(f"App URL: {APP_BASE_URL}")
+    print()
+    print("  curl -X POST 'http://localhost:5000/forward-call?caller_id=+49111&destination_id=+49222' \\")
+    print("    -H 'Content-Type: application/json' \\")
+    print("    -d '{\"transcript\": {...}}'")
+    app.run(host="0.0.0.0", port=5000, debug=True)

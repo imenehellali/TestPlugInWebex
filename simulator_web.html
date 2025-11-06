@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Simulator - Transcript Forwarder</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        /* DARK THEME - Matching app.css */
+        body {
+            font-family: system-ui, -apple-system, Arial, sans-serif;
+            background: #0e1623;
+            color: #e6eefb;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: #132032;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            padding: 40px;
+            border: 1px solid #1f2b3d;
+        }
+        
+        h1 {
+            color: #e6eefb;
+            margin-bottom: 10px;
+            font-size: 28px;
+            background: linear-gradient(90deg, #18e299 0%, #3ec5ff 60%, #7b8cff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            color: #9aa7bd;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            font-weight: 600;
+            color: #e6eefb;
+            margin-bottom: 8px;
+            font-size: 14px;
+            letter-spacing: 0.2px;
+        }
+        
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: #0b1020;
+            border: 1px solid #1f2b3d;
+            border-radius: 10px;
+            font-size: 15px;
+            color: #e6eefb;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #3ec5ff;
+            box-shadow: 0 0 0 3px rgba(62, 197, 255, 0.1);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+        
+        .hint {
+            font-size: 12px;
+            color: #9aa7bd;
+            margin-top: 5px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(90deg, #18e299 0%, #3ec5ff 60%, #7b8cff 100%);
+            color: #0b1020;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 6px 16px rgba(0, 180, 255, 0.15);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 10px 25px rgba(0, 180, 255, 0.25);
+        }
+        
+        .btn-secondary {
+            background: #152238;
+            color: #e6eefb;
+            border: 1px solid #1f2b3d;
+        }
+        
+        .btn-secondary:hover {
+            background: #1f334d;
+        }
+        
+        .result {
+            margin-top: 25px;
+            padding: 16px;
+            border-radius: 10px;
+            display: none;
+            border: 1px solid;
+        }
+        
+        .result.success {
+            background: rgba(24, 226, 153, 0.1);
+            border-color: rgba(24, 226, 153, 0.3);
+            color: #18e299;
+        }
+        
+        .result.error {
+            background: rgba(255, 100, 100, 0.1);
+            border-color: rgba(255, 100, 100, 0.3);
+            color: #ff8080;
+        }
+        
+        .result.info {
+            background: rgba(62, 197, 255, 0.1);
+            border-color: rgba(62, 197, 255, 0.3);
+            color: #3ec5ff;
+        }
+        
+        .result-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .result-content {
+            font-size: 14px;
+            white-space: pre-wrap;
+            opacity: 0.9;
+        }
+        
+        .quick-fill {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .quick-fill button {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            background: #152238;
+            color: #cfe4ff;
+            border: 1px solid #1f2b3d;
+            cursor: pointer;
+            flex: none;
+        }
+        
+        .quick-fill button:hover {
+            background: #1f334d;
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        
+        @media (max-width: 600px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📞 Call Simulator</h1>
+        <p class="subtitle">Forward transcripts to Webex agents for testing</p>
+
+        <form id="forwardForm">
+            <div class="form-group">
+                <label for="callerNumber">Caller ID (Anrufer)</label>
+                <input type="text" id="callerNumber" placeholder="+49111222333" required>
+                <div class="hint">Die Nummer des Anrufers (z.B. Kunde)</div>
+            </div>
+
+            <div class="form-group">
+                <label for="targetNumber">Destination ID (Ziel-Agent)</label>
+                <input type="text" id="targetNumber" placeholder="+4922197580971" required>
+                <div class="hint">Die Rufnummer des Webex-Agenten</div>
+            </div>
+
+            <div class="form-group">
+                <label for="customerName">Kundenname (Optional)</label>
+                <div class="grid-2">
+                    <input type="text" id="firstName" placeholder="Max">
+                    <input type="text" id="lastName" placeholder="Mustermann">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="transcript">Transcript / Zusammenfassung</label>
+                <textarea id="transcript" placeholder="Hier das Gesprächstranskript oder Notizen eingeben...
+
+Beispiel:
+- Kunde möchte Kontowechsel durchführen
+- Neue Kreditkarte mit höherem Limit
+- Termin für persönliche Beratung"></textarea>
+                <div class="quick-fill">
+                    <button type="button" onclick="fillExample()">📝 Beispiel</button>
+                    <button type="button" onclick="clearForm()">🗑️ Löschen</button>
+                </div>
+                <div class="hint">Kann leer bleiben - dann wird nur der Anruf ohne Transcript angezeigt</div>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn-primary">📤 Weiterleiten</button>
+                <button type="button" class="btn-secondary" onclick="testConnection()">🔍 Verbindung testen</button>
+            </div>
+        </form>
+
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('forwardForm');
+        const resultDiv = document.getElementById('result');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const callerNumber = document.getElementById('callerNumber').value.trim();
+            const targetNumber = document.getElementById('targetNumber').value.trim();
+            const firstName = document.getElementById('firstName').value.trim() || 'Kunde';
+            const lastName = document.getElementById('lastName').value.trim() || 'Unbekannt';
+            const transcript = document.getElementById('transcript').value.trim();
+
+            if (!callerNumber || !targetNumber) {
+                showResult('error', 'Fehler', 'Bitte Caller ID und Destination ID eingeben');
+                return;
+            }
+
+            showResult('info', 'Sende...', 'Transcript wird weitergeleitet...');
+
+            try {
+                // NEW FORMAT: Query params + body
+                const url = `/forward-call?caller_id=${encodeURIComponent(callerNumber)}&destination_id=${encodeURIComponent(targetNumber)}`;
+                
+                const payload = {
+                    transcript: {
+                        customer_first_name: firstName,
+                        customer_last_name: lastName,
+                        anliegen: transcript ? transcript.split('\n').filter(l => l.trim() && l.startsWith('-')).map(l => l.substring(1).trim()) : [],
+                        next_steps: ['Rückruf vereinbaren', 'Dokumente nachreichen'],
+                        callback_number: callerNumber,
+                        email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@example.com`,
+                        ai_agent_name: 'WebSimulator'
+                    }
+                };
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.ok) {
+                    showResult('success', '✅ Erfolgreich weitergeleitet!', 
+                        `Caller: ${data.caller_id}\n` +
+                        `Destination: ${data.destination_id}\n` +
+                        `Status: ${data.status}\n` +
+                        `Nachricht: ${data.message || 'Transcript wird beim Annehmen angezeigt'}`
+                    );
+                } else {
+                    showResult('error', '❌ Fehler beim Weiterleiten', 
+                        data.error || data.details || 'Unbekannter Fehler'
+                    );
+                }
+            } catch (error) {
+                showResult('error', '❌ Verbindungsfehler', 
+                    `Kann nicht mit Server verbinden: ${error.message}`
+                );
+            }
+        });
+
+        async function testConnection() {
+            showResult('info', 'Teste...', 'Verbindung wird geprüft...');
+            
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult('success', '✅ Verbindung OK', 
+                        `Service: ${data.service}\n` +
+                        `Status: ${data.status}\n` +
+                        `API Key: ${data.api_key_configured ? '✓' : '✗'}\n` +
+                        `App URL: ${data.app_base_url}\n` +
+                        `Sent: ${data.sent_count || 0}\n` +
+                        `Received: ${data.received_count || 0}`
+                    );
+                } else {
+                    showResult('error', '❌ Server Fehler', 'Server antwortet nicht korrekt');
+                }
+            } catch (error) {
+                showResult('error', '❌ Verbindung fehlgeschlagen', 
+                    `Kann nicht mit Server verbinden: ${error.message}`
+                );
+            }
+        }
+
+        function fillExample() {
+            document.getElementById('callerNumber').value = '+49111222333';
+            document.getElementById('targetNumber').value = '+4922197580971';
+            document.getElementById('firstName').value = 'Max';
+            document.getElementById('lastName').value = 'Mustermann';
+            document.getElementById('transcript').value = 
+                'AI-Agent: Guten Tag! Wie kann ich Ihnen helfen?\n\n' +
+                'Kunde: Ich möchte von meiner alten Bank zu Ihnen wechseln.\n\n' +
+                'AI-Agent: Sehr gerne! Haben Sie bereits ein Konto bei uns?\n\n' +
+                'Kunde: Nein, noch nicht. Ich brauche auch eine Kreditkarte.\n\n' +
+                'Anliegen:\n' +
+                '- Kontowechsel durchführen\n' +
+                '- Neue Kreditkarte beantragen\n' +
+                '- Online-Banking einrichten';
+        }
+
+        function clearForm() {
+            document.getElementById('callerNumber').value = '';
+            document.getElementById('targetNumber').value = '';
+            document.getElementById('firstName').value = '';
+            document.getElementById('lastName').value = '';
+            document.getElementById('transcript').value = '';
+        }
+
+        function showResult(type, title, content) {
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <div class="result-title">${title}</div>
+                <div class="result-content">${content}</div>
+            `;
+        }
+    </script>
+</body>
+</html>
