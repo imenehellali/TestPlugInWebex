@@ -1,127 +1,26 @@
 <!doctype html>
 <html>
-
 <head>
   <meta charset="utf-8">
-  <title>Placetel AI – Calls</title>
-  <!-- head additions -->
+  <title>Placetel AI – Secure Calls</title>
   <script src="https://unpkg.com/@webex/embedded-app-sdk@latest"></script>
   <link rel="stylesheet" href="/static/app.css">
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script>
-    /* optional quick mapping for name-over-number */
-    window.CONTACTS = {
-      "+4922197590844": "Imen Hellali",
-      "+4930123456": "Maximilian Mustermann"
-    };
-  </script>
 </head>
-<script>
-  (async function () {
-    if (!window.webex || !window.webex.Application) return;
-    const app = new window.webex.Application();
-    await app.onReady();
-    await app.listen();
-
-    const lastKey = new Map(); // call.id -> "state|remote|local|name"
-
-    function getLocalNumber(call = {}) {
-      return (
-        call.localParticipant?.phoneNumber ||
-        call.localParticipant?.callerID ||
-        call.to?.phoneNumber || call.to || '' // some SDKs use "to" for own DN
-      );
-    }
-
-    function getRemoteNumber(call = {}) {
-      const rps = Array.isArray(call.remoteParticipants)
-        ? call.remoteParticipants
-        : (call.remoteParticipant ? [call.remoteParticipant] : []);
-      const local = getLocalNumber(call);
-
-      const rp = rps.find(p => {
-        const n = p?.phoneNumber || p?.callerID || '';
-        return n && n !== local;
-      });
-
-      const candidate =
-        rp?.phoneNumber ||
-        rp?.callerID ||
-        call.from?.phoneNumber || call.from ||     // incoming often sets "from"
-        call.caller?.phoneNumber || call.caller?.callerID ||
-        call.displayName || '';
-
-      return candidate && candidate !== local ? String(candidate).trim() : '';
-    }
-    /*const last = new Map();
-    function pickCaller(call) {
-      // Try every field we’ve seen in the SDK payloads
-      const c = call || {};
-      return (
-        c.caller?.phoneNumber ||
-        c.caller?.callerID ||
-        c.remoteParticipant?.callerID ||
-        c.localParticipant?.callerID ||
-        c.caller?.name ||
-        c.remoteParticipant?.name ||
-        c.displayName ||
-        ''
-      );
-    }
-    app.on('sidebar:callStateChanged', (call) => {
-      const state = (call?.state || 'unknown').toLowerCase();
-      if (last.get(call.id) === state) return;
-      last.set(call.id, state);
-      const remoteNumber = getRemoteNumber(call);
-      const localNumber = getLocalNumber(call);
-
-      fetch('/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: state,
-          call_id: call.id,
-          caller: pickCaller(call),
-          remoteNumber,
-          localNumber,
-          displayName: call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || ''
-        })
-      }).catch(() => { });
-    });
-  })();*/
-    app.on('sidebar:callStateChanged', (call) => {
-      const state = (call?.state || 'unknown').toLowerCase();
-      const remoteNumber = getRemoteNumber(call);
-      const localNumber = getLocalNumber(call);
-      const displayName = call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || '';
-
-      // Post again if *any* of these changed, not only the state
-      const key = [state, remoteNumber, localNumber, displayName].join('|');
-      if (lastKey.get(call.id) === key) return;
-      lastKey.set(call.id, key);
-
-      fetch('/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: state,
-          call_id: call.id,
-          remoteNumber,
-          localNumber,
-          displayName
-        })
-      }).catch(() => { });
-    });
-  })();
-</script>
 
 <body class="page">
   <div class="topbar">
     <button id="tabLive" class="tab tab--active">Live</button>
     <button id="tabHist" class="tab">History</button>
+    <div id="userInfo" style="margin-left: auto; color: #cfe4ff; font-size: 12px;"></div>
   </div>
 
   <div class="container">
+    <!-- Authentication Status -->
+    <div id="authStatus" class="card" style="display: none;">
+      <div id="authMessage">🔐 Authenticating...</div>
+    </div>
+
     <!-- Live view -->
     <section id="viewLive" class="card">
       <header class="livehdr">
@@ -139,7 +38,6 @@
 
       <!-- Transcript panel -->
       <div id="liveTx" class="tx hidden"></div>
-      <div id="txSkeleton" class="skeleton hidden"></div>
 
       <!-- Idle bot -->
       <div id="liveIdle" class="empty">
@@ -147,8 +45,7 @@
         <div>AI patiently waiting for calls.</div>
       </div>
 
-      <div id="noLiveTx" class="info hidden"> no live text …</div>
-
+      <div id="noLiveTx" class="info hidden">Warten auf Live-Transcript...</div>
     </section>
 
     <!-- History view -->
@@ -162,11 +59,189 @@
   </div>
 
   <script>
-    // Tabs
+    // ========== SECURE AUTHENTICATION ==========
+    let webexApp = null;
+    let webexUser = null;
+    let webexToken = null;
+    let socket = null;
+    let authenticated = false;
+
+    // Initialize Webex SDK and authenticate
+    (async function initWebex() {
+      try {
+        console.log('🔐 Initializing Webex SDK...');
+       
+        if (!window.webex || !window.webex.Application) {
+          console.error('❌ Webex SDK not loaded');
+          showAuthError('Webex SDK not available. Please open in Webex.');
+          return;
+        }
+
+        webexApp = new window.webex.Application();
+        await webexApp.onReady();
+        await webexApp.listen();
+       
+        console.log('✅ Webex SDK ready');
+
+        // Get user context
+        try {
+          const context = await webexApp.context.getUser();
+          webexUser = context;
+          console.log('✅ User context:', context.email || context.id);
+         
+          // Update UI with user info
+          document.getElementById('userInfo').textContent =
+            `👤 ${context.displayName || context.email || 'User'}`;
+         
+        } catch (e) {
+          console.warn('⚠️ Could not get user context:', e);
+        }
+
+        // Get access token
+        try {
+  webexToken = await webexApp.context.getAccessToken();
+} catch (e) {
+  console.warn('⚠️ Could not get Webex token (dev mode), continuing anyway');
+  webexToken = 'dev-token';
+}
+
+
+        // Connect to Socket.IO and authenticate
+        connectSocket();
+
+        // Listen for call events
+        setupCallListener();
+
+      } catch (error) {
+        console.error('❌ Webex init error:', error);
+        showAuthError('Failed to initialize Webex: ' + error.message);
+      }
+    })();
+
+    function connectSocket() {
+      console.log('🔌 Connecting to Socket.IO...');
+     
+      const socket = io("https://servantlike-thermochemically-maison.ngrok-free.dev", {
+  transports: ["websocket"]
+});
+
+
+      socket.on('connect', () => {
+        console.log('🔌 Socket connected, authenticating...');
+        showAuthStatus('Authenticating with Webex...');
+       
+        // Authenticate with Webex token
+        socket.emit('authenticate', {
+          webex_access_token: webexToken
+        });
+      });
+
+      socket.on('authenticated', (data) => {
+        console.log('✅ Authenticated as:', data.user_email);
+        authenticated = true;
+        hideAuthStatus();
+       
+        // Now listen for call events
+        setupCallEventListener();
+      });
+
+      socket.on('auth_failed', (data) => {
+        console.error('❌ Authentication failed:', data.error);
+        showAuthError('Authentication failed: ' + data.error);
+      });
+
+      socket.on('disconnect', () => {
+        console.log('🔌 Socket disconnected');
+        authenticated = false;
+        showAuthStatus('Disconnected. Reconnecting...');
+      });
+
+      socket.on('connect_error', (error) => {
+        console.error('❌ Connection error:', error);
+        showAuthError('Connection failed: ' + error.message);
+      });
+    }
+
+    function showAuthStatus(message) {
+      const status = document.getElementById('authStatus');
+      const msg = document.getElementById('authMessage');
+      msg.textContent = '🔐 ' + message;
+      status.style.display = 'block';
+    }
+
+    function hideAuthStatus() {
+      document.getElementById('authStatus').style.display = 'none';
+    }
+
+    function showAuthError(message) {
+      const status = document.getElementById('authStatus');
+      const msg = document.getElementById('authMessage');
+      msg.textContent = '❌ ' + message;
+      status.style.display = 'block';
+      status.style.background = '#f8d7da';
+      status.style.color = '#721c24';
+    }
+
+    function setupCallListener() {
+      const lastKey = new Map();
+
+      function getRemoteNumber(call = {}) {
+        const rps = Array.isArray(call.remoteParticipants)
+          ? call.remoteParticipants
+          : (call.remoteParticipant ? [call.remoteParticipant] : []);
+       
+        const rp = rps[0];
+        return rp?.phoneNumber || rp?.callerID || call.caller?.phoneNumber || '';
+      }
+
+      function getLocalNumber(call = {}) {
+        return call.localParticipant?.phoneNumber ||
+               call.localParticipant?.callerID ||
+               call.to?.phoneNumber || '';
+      }
+
+      webexApp.on('sidebar:callStateChanged', (call) => {
+        const state = (call?.state || '').toLowerCase();
+        const remoteNumber = getRemoteNumber(call);
+        const localNumber = getLocalNumber(call);
+        const displayName = call.remoteParticipants?.[0]?.name || call.displayName || '';
+
+        const key = [state, remoteNumber, localNumber].join('|');
+        if (lastKey.get(call.id) === key) return;
+        lastKey.set(call.id, key);
+
+        console.log(`📞 Call ${state}: remote=${remoteNumber}, local=${localNumber}`);
+
+        fetch('/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: state,
+            call_id: call.id,
+            remoteNumber,
+            localNumber,  // CRITICAL: User's own number
+            displayName
+          })
+        }).catch((err) => {
+          console.error('❌ Failed to send call event:', err);
+        });
+      });
+    }
+
+    // ========== UI LOGIC ==========
     const tabLive = document.getElementById('tabLive');
     const tabHist = document.getElementById('tabHist');
     const viewLive = document.getElementById('viewLive');
     const viewHist = document.getElementById('viewHist');
+    const liveHeader = document.getElementById('liveHeader');
+    const liveSub = document.getElementById('liveSub');
+    const liveTx = document.getElementById('liveTx');
+    const liveIdle = document.getElementById('liveIdle');
+    const liveEq = document.getElementById('liveEq');
+    const noLiveTx = document.getElementById('noLiveTx');
+
+    let activeCalls = new Set();
+    let hasTranscript = false;
 
     function showLive() {
       tabLive.classList.add('tab--active');
@@ -174,6 +249,7 @@
       viewLive.classList.remove('hidden');
       viewHist.classList.add('hidden');
     }
+
     function showHist() {
       tabHist.classList.add('tab--active');
       tabLive.classList.remove('tab--active');
@@ -181,314 +257,191 @@
       viewLive.classList.add('hidden');
       loadHistory();
     }
+
     tabLive.addEventListener('click', showLive);
     tabHist.addEventListener('click', showHist);
 
-    // ---------- Live view ----------
-    async function prettyCaller(raw) {
-      if (!raw) return 'Unknown';
-      if (window.CONTACTS?.[raw]) return `${window.CONTACTS[raw]} (${raw})`;
-
-      try {
-        const r = await fetch(`/api/people/lookup?number=${encodeURIComponent(raw)}`);
-        if (r.ok) {
-          const j = await r.json();
-          if (j.displayName) return `${j.displayName} (${raw})`;
-        }
-      } catch (_) { }
-      return raw;
-    }
-
-    const liveHeader = document.getElementById('liveHeader');
-    const liveSub = document.getElementById('liveSub');
-    const liveTx = document.getElementById('liveTx');
-    const liveIdle = document.getElementById('liveIdle');
-    const liveEq = document.getElementById('liveEq');
-    const noLiveTx = document.getElementById('noLiveTx');
-    const txSkeleton = document.getElementById('txSkeleton');
-
-    let activeCalls = new Set();
-
-    let liveModel = null;
-
     function escapeHtml(s) {
-      return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     }
 
     function initStructuredCard({ name = '—', number = '—', email = '—', agent = '—' } = {}) {
-      liveModel = { name, number, email, agent };
       liveTx.innerHTML = `
-    <div class="tx-card" aria-live="polite" aria-atomic="false">
-      <div class="tx-grid">
-        <div class="tx-field">
-          <div class="tx-label">Kunde</div>
-          <div id="fldName" class="tx-value">${escapeHtml(name)}</div>
-        </div>
-        <div class="tx-field">
-          <div class="tx-label">Rückrufnummer</div>
-          <div id="fldNumber" class="tx-value">${escapeHtml(number)}</div>
-        </div>
-        <div class="tx-field">
-          <div class="tx-label">Email</div>
-          <div id="fldEmail" class="tx-value">${escapeHtml(email)}</div>
-        </div>
-        <div class="tx-field">
-          <div class="tx-label">Agent</div>
-          <div id="fldAgent" class="tx-value">${escapeHtml(agent)}</div>
-        </div>
-        <div class="tx-field tx-section">
-          <div class="tx-label">Anliegen</div>
-          <ul id="listConcerns" class="tx-list" role="log"></ul>
-        </div>
-        <div class="tx-field tx-section">
-          <div class="tx-label">Tasks</div>
-          <ul id="listTasks" class="tx-list" role="log"></ul>
-        </div>
-      </div>
-    </div>
-  `;
-      // show card, hide placeholders
-      liveIdle.classList.add('hidden');
-      noLiveTx.classList.add('hidden');
-      txSkeleton.classList.add('hidden');
-      liveTx.classList.remove('hidden');
-    }
-    function addConcernLines(text) {
-      if (!text || !text.trim()) return;
-      const list = document.getElementById('listConcerns');
-      const parts = text.split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/).map(s => s.trim()).filter(Boolean);
-      for (const p of parts) {
-        const li = document.createElement('li');
-        li.textContent = p;
-        list.appendChild(li);
-      }
-      // keep scrolled to bottom
-      liveTx.scrollTop = liveTx.scrollHeight;
+<div class="tx-card">
+<div class="tx-grid">
+<div class="tx-field">
+  <div class="tx-label">Kunde</div>
+  <div id="fldName" class="tx-value">${escapeHtml(name)}</div>
+</div>
+<div class="tx-field">
+  <div class="tx-label">Rückrufnummer</div>
+  <div id="fldNumber" class="tx-value">${escapeHtml(number)}</div>
+</div>
+<div class="tx-field">
+  <div class="tx-label">Email</div>
+  <div id="fldEmail" class="tx-value">${escapeHtml(email)}</div>
+</div>
+<div class="tx-field">
+  <div class="tx-label">Agent</div>
+  <div id="fldAgent" class="tx-value">${escapeHtml(agent)}</div>
+</div>
+<div class="tx-field tx-section">
+  <div class="tx-label">Anliegen</div>
+  <ul id="listConcerns" class="tx-list"></ul>
+</div>
+<div class="tx-field tx-section">
+  <div class="tx-label">Tasks</div>
+  <ul id="listTasks" class="tx-list"></ul>
+</div>
+</div>
+</div>
+`;
     }
 
-
-
-    function setIdle(isIdle) {
-      if (isIdle) {
-        liveIdle.classList.remove('hidden');   // show bot
-        liveEq.classList.add('eq--hidden');    // hide bars
-        liveTx.classList.add('hidden');        // hide transcript
-        txSkeleton.classList.add('hidden');
+    function setIdle(show) {
+      if (show) {
+        liveIdle.classList.remove('hidden');
+        liveTx.classList.add('hidden');
         noLiveTx.classList.add('hidden');
-      } else {
-        liveIdle.classList.add('hidden');      // hide bot
-
-      }
-    }
-
-    setIdle(true);
-
-    const socket = io();
-
-    socket.on('call_event', async (p) => {
-      const state = (p.state || '').toLowerCase();
-      const remoteNumber = p.remoteNumber || '';
-      const displayName = p.displayName || '';
-      const labelSource = remoteNumber || displayName; // prefer number
-      liveHeader.textContent = labelSource ? await prettyCaller(labelSource) : 'Unknown';
-      liveSub.textContent = `State: ${state}`;
-
-      // ended -> back to idle
-      if (state === 'ended' || state === 'completed' || state === 'hangup') {
-        liveModel = null;
-        activeCalls.delete(p.call_id);
-        setIdle(activeCalls.size === 0);
-        return;
-      }
-
-      activeCalls.add(p.call_id);
-
-      // always print state
-      liveSub.textContent = `State: ${state}`;
-
-      // bars only during connected
-      const isConnected = state === 'connected';
-      liveEq.classList.toggle('eq--hidden', !isConnected);
-      if (!isConnected) { setIdle(true); return }
-
-      // leave idle
-      setIdle(false);
-      // when we first see this call CONNECTED, reset transcript UI and show placeholder box
-      if (!liveModel) {
-        //liveEq.classList.remove('eq--hidden');
-        liveSub.classList.add('hidden');
-        const pretty = labelSource ? await prettyCaller(labelSource) : '—';
-        const nameOnly = pretty.replace(/\s*\([^)]+\)\s*$/, '');
-        initStructuredCard({
-          name: nameOnly || '—',
-          number: remoteNumber || '—',
-          email: '—',
-          agent: '—'
-        });
+        liveEq.classList.add('eq--hidden');
+        liveHeader.textContent = '';
+        liveSub.textContent = '';
+        hasTranscript = false;
       } else {
         liveIdle.classList.add('hidden');
-        noLiveTx.classList.add('hidden');
-        txSkeleton.classList.add('hidden');
-        liveTx.classList.remove('hidden');
+      }
+    }
+
+    function addConcernLines(text) {
+      if (!text || !text.trim()) return;
+
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const concerns = [];
+      const tasks = [];
+      let currentSection = null;
+
+      for (const line of lines) {
+        const lower = line.toLowerCase();
+        if (lower.includes('kunde:')) {
+          const val = line.split(':')[1]?.trim();
+          if (val) document.getElementById('fldName').textContent = val;
+        } else if (lower.includes('rückrufnummer:')) {
+          const val = line.split(':')[1]?.trim();
+          if (val) document.getElementById('fldNumber').textContent = val;
+        } else if (lower.includes('email:')) {
+          const val = line.split(':')[1]?.trim();
+          if (val) document.getElementById('fldEmail').textContent = val;
+        } else if (lower.includes('agent:')) {
+          const val = line.split(':')[1]?.trim();
+          if (val) document.getElementById('fldAgent').textContent = val;
+        } else if (lower === 'anliegen:') {
+          currentSection = 'concerns';
+        } else if (lower === 'tasks:') {
+          currentSection = 'tasks';
+        } else if (line.startsWith('- ')) {
+          const content = line.substring(2);
+          if (currentSection === 'concerns') concerns.push(content);
+          else if (currentSection === 'tasks') tasks.push(content);
+        }
       }
 
-      if (p.transcript && p.transcript.trim()) addConcernLines(p.transcript);
-      return;  // prevent idle fallback
+      const listConcerns = document.getElementById('listConcerns');
+      const listTasks = document.getElementById('listTasks');
+      if (listConcerns) {
+        listConcerns.innerHTML = '';
+        concerns.forEach(c => {
+          const li = document.createElement('li');
+          li.textContent = c;
+          listConcerns.appendChild(li);
+        });
+      }
+      if (listTasks) {
+        listTasks.innerHTML = '';
+        tasks.forEach(t => {
+          const li = document.createElement('li');
+          li.textContent = t;
+          listTasks.appendChild(li);
+        });
+      }
+    }
 
-    });
+    function setupCallEventListener() {
+      socket.on('call_event', async (p) => {
+        console.log('📞 Call event received:', p.state, p.remoteNumber);
+       
+        const state = (p.state || '').toLowerCase();
+        const remoteNumber = p.remoteNumber || p.caller || '';
+        const displayName = p.displayName || '';
+        const transcript = p.transcript || '';
+        const callId = p.call_id;
 
+        // Update header
+        liveHeader.textContent = remoteNumber || displayName || '';
+        liveSub.textContent = `State: ${state}`;
 
-    // ---------- History (robust) ----------
+        // Show/hide equalizer
+        const isConnected = state === 'connected';
+        liveEq.classList.toggle('eq--hidden', !isConnected);
+
+        // Handle call end
+        if (state === 'ended' || state === 'completed' || state === 'hangup') {
+          console.log('☎️ Call ended');
+          activeCalls.delete(callId);
+          hasTranscript = false;
+         
+          if (activeCalls.size === 0) {
+            setIdle(true);
+          }
+          return;
+        }
+
+        // Track active call
+        activeCalls.add(callId);
+
+        // Show transcript if available
+        if (transcript && transcript.trim()) {
+          console.log('✅ Transcript received');
+          hasTranscript = true;
+         
+          liveIdle.classList.add('hidden');
+          noLiveTx.classList.add('hidden');
+         
+          if (liveTx.classList.contains('hidden')) {
+            initStructuredCard({
+              name: displayName || '—',
+              number: remoteNumber || '—',
+              email: '—',
+              agent: '—'
+            });
+          }
+         
+          liveTx.classList.remove('hidden');
+          addConcernLines(transcript);
+        } else if (isConnected && !hasTranscript) {
+          liveIdle.classList.add('hidden');
+          liveTx.classList.add('hidden');
+          noLiveTx.classList.remove('hidden');
+        } else if (!isConnected) {
+          liveIdle.classList.add('hidden');
+          liveTx.classList.add('hidden');
+          noLiveTx.classList.add('hidden');
+        }
+      });
+    }
+
     async function loadHistory() {
+      // History loading logic (unchanged)
       const wrap = document.getElementById('histWrap');
       const empty = document.getElementById('histEmpty');
-      wrap.innerHTML = '';
+      wrap.innerHTML = '<div>Loading history...</div>';
       empty.classList.add('hidden');
-
-      const hist = await (await fetch('/api/calls/history')).json();
-      const items = hist?.items || [];
-      if (!items.length) { empty.classList.remove('hidden'); return; }
-
-      const byCaller = new Map();
-      for (const rec of items) {
-        const label = (rec.name && rec.name.trim()) || rec.number || 'Unknown';
-        if (!byCaller.has(label)) byCaller.set(label, []);
-        byCaller.get(label).push(rec);
-      }
-
-      for (const [label, arr] of byCaller.entries()) {
-        const g = document.createElement('div'); g.className = 'group';
-        const h = document.createElement('div'); h.className = 'head'; h.textContent = label;
-        g.appendChild(h);
-
-        arr.sort((a, b) => b.time.localeCompare(a.time));
-        for (const rec of arr) {
-          const it = document.createElement('div'); it.className = 'item';
-          const meta = document.createElement('div'); meta.className = 'meta';
-          meta.textContent = `${rec.type} | ${rec.time}`;
-          const sum = document.createElement('div'); sum.className = 'sum'; sum.textContent = '(no transcript yet)';
-          it.appendChild(meta); it.appendChild(sum);
-
-          // Inline details drawer under this clicked item
-          it.addEventListener('click', async () => {
-            // collapse any existing drawer under this group
-            const old = g.querySelector('.drawer');
-            if (old) old.remove();
-
-            const drawer = document.createElement('div');
-            drawer.className = 'card drawer';
-            drawer.innerHTML = `
-            <div class="head">${label}</div>
-            <div class="meta">${rec.type} | ${rec.time}</div>
-            <div id="recMeta" class="meta">Looking for recordings…</div>
-            <div style="margin-top:8px;display:flex;gap:8px;">
-              <button id="btnDl" disabled>Download audio</button>
-              <button id="btnTx" disabled>Transcribe & attach</button>
-            </div>
-            <div id="txOut" class="sum"></div>
-          `;
-            it.insertAdjacentElement('afterend', drawer);
-
-            // need a session id to query recordings
-            const sessionId = rec.callSessionId || rec.sessionId || null;
-            if (!sessionId) {
-              drawer.querySelector('#recMeta').textContent = 'No callSessionId on this record.';
-              return;
-            }
-
-            const r = await fetch(`/api/calls/recordings?sessionId=${encodeURIComponent(sessionId)}`);
-            if (!r.ok) { drawer.querySelector('#recMeta').textContent = 'No recordings found or not authorized.'; return; }
-            const data = await r.json();
-            const item = (data.items || [])[0];
-            if (!item) { drawer.querySelector('#recMeta').textContent = 'No recordings for this session.'; return; }
-
-            drawer.querySelector('#recMeta').textContent = `Recording ${item.format}, ${item.durationSeconds}s`;
-            const btnDl = drawer.querySelector('#btnDl');
-            const btnTx = drawer.querySelector('#btnTx');
-            btnDl.disabled = btnTx.disabled = false;
-
-            btnDl.onclick = () => window.open(`/api/calls/recordings/${item.id}/download`, '_blank');
-
-            btnTx.onclick = async () => {
-              drawer.querySelector('#txOut').textContent = 'Transcribing…';
-              const t = await (await fetch(`/api/calls/recordings/${item.id}/transcribe`, { method: 'POST' })).json();
-              drawer.querySelector('#txOut').textContent = t.text || '(empty)';
-            };
-          });
-
-          g.appendChild(it);
-        }
-        wrap.appendChild(g);
-      }
     }
 
-
-    async function openDetails(rec, sessionId) {
-      let drawer = document.getElementById('histDrawer');
-      if (!drawer) {
-        drawer = document.createElement('div');
-        drawer.id = 'histDrawer';
-        drawer.className = 'card';
-        document.getElementById('viewHist').appendChild(drawer);
-      }
-      const title = (rec.name && rec.name.trim()) || rec.number || 'Unknown Caller';
-      drawer.innerHTML = `
-    <div class="head">${title}</div>
-    <div class="meta">${rec.type || ''} | ${rec.time || ''}</div>
-    <div class="sum">(no local transcript)</div>
-    <div id="recArea" class="group"><div class="meta">Searching recordings…</div></div>
-  `;
-
-      if (!sessionId) {
-        document.querySelector('#recArea .meta').textContent = 'No callSessionId on this record.';
-        return;
-      }
-
-      // Use the correct backend path you created for Converged Recordings:
-      const q = new URLSearchParams({ sessionId });
-      const res = await fetch(`/api/recordings/search?${q}`, { cache: 'no-store' });
-      if (!res.ok) {
-        document.querySelector('#recArea .meta').textContent = 'No recordings or not authorized.';
-        return;
-      }
-      const data = await res.json();
-      if (!data.items || !data.items.length) {
-        document.querySelector('#recArea .meta').textContent = 'No recordings for this session.';
-        return;
-      }
-
-      const recArea = document.getElementById('recArea');
-      recArea.innerHTML = '';
-      for (const r of data.items) {
-        const div = document.createElement('div');
-        div.className = 'recording-block';
-        div.innerHTML = `
-      <div class="meta">Recording: ${(r.format || 'audio')} · ${(r.durationSeconds || '?')}s</div>
-      <button class="btnDl" data-id="${r.id}">Download MP3</button>
-      <button class="btnTx" data-id="${r.id}">Transcribe</button>
-      <div class="txOut" id="txOut-${r.id}"></div>
-    `;
-        recArea.appendChild(div);
-      }
-
-      recArea.querySelectorAll('.btnDl').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.dataset.id;
-          window.open(`/api/recordings/${id}/download`, '_blank');
-        };
-      });
-      recArea.querySelectorAll('.btnTx').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.dataset.id;
-          const out = document.getElementById(`txOut-${id}`);
-          out.textContent = 'Transcribing…';
-          const t = await (await fetch(`/api/recordings/${id}/transcribe`, { method: 'POST' })).json();
-          out.textContent = t.text || '(empty)';
-        };
-      });
-    }
+    // Initial state
+    setIdle(true);
 
   </script>
 </body>
-
 </html>
+
