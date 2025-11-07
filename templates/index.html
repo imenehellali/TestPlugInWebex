@@ -1,5 +1,6 @@
 <!doctype html>
 <html>
+
 <head>
   <meta charset="utf-8">
   <title>Placetel AI – Call Transcripts</title>
@@ -64,13 +65,24 @@
     let webexToken = null;
     let socket = null;
     let authenticated = false;
+    let authChecked = false;
+    let authAuthorized = false;
+
+    async function checkOnce(identity) {
+      if (authChecked) return authAuthorized;
+      const qs = new URLSearchParams();
+      if (identity.id) qs.set('id', identity.id);
+      if (identity.email) qs.set('email', identity.email);
+      const r = await fetch(`/auth/status?${qs.toString()}`);
+      const j = await r.json();
+      authChecked = true;
+      authAuthorized = !!j.authorized;
+      return authAuthorized;
+    }
 
     (async function initWebex() {
       try {
-        console.log('🔐 Initializing Webex SDK...');
-        
         if (!window.webex || !window.webex.Application) {
-          console.error('❌ Webex SDK not loaded');
           showAuthError('Webex SDK not available. Please open in Webex.');
           return;
         }
@@ -78,74 +90,93 @@
         webexApp = new window.webex.Application();
         await webexApp.onReady();
         await webexApp.listen();
-        
-        console.log('✅ Webex SDK ready');
 
-        try {
-          const context = await webexApp.context.getUser();
-          document.getElementById('userInfo').textContent = 
-            `👤 ${context.displayName || context.email || 'User'}`;
-        } catch (e) {
-          console.warn('⚠️ Could not get user context:', e);
-        }
+        // SDK 2.x user state (email may be null under org PII policy)
+        const userState = webexApp.application?.states?.user ?? {};
+        const identity = {
+          id: userState.id || null,
+          email: userState.email || null,
+          displayName: userState.displayName || null,
+          number: userState.phoneNumber || null
+        };
+        document.getElementById('userInfo').textContent =
+          identity.displayName || identity.email || identity.number || identity.id || 'User';
 
-        try {
-          webexToken = await webexApp.context.getAccessToken();
-          console.log('✅ Got access token');
-        } catch (e) {
-          console.error('❌ Could not get access token:', e);
-          showAuthError('Failed to get Webex access token');
+        // Wait briefly for OAuth to complete after redirect, then proceed
+        const ok = await checkOnce(identity); //await waitForAuthorization(identity, { attempts: 10, interval: 700 });
+        if (!ok) {
+          showAuthorizeLink();
           return;
         }
 
-        connectSocket();
+        hideAuthStatus();
         setupCallListener();
+        connectSocket(identity);   // your existing connect; emits 'authenticate' with {id,email}
 
-      } catch (error) {
-        console.error('❌ Webex init error:', error);
-        showAuthError('Failed to initialize Webex: ' + error.message);
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
+        showAuthError('Failed to initialize Webex: ' + msg);
       }
     })();
+    function showAuthorizeLink() {
+      showAuthError('Authorization required. Click to authorize.');
+      const link = document.createElement('a');
+      link.href = '/oauth/login';          // server will redirect to Webex authorize and back
+      link.textContent = '    Authorize Webex';
+      link.style.display = 'inline-block';
+      link.style.margin = '8px 0';
+      document.getElementById('authMessage').appendChild(link);
+    }
 
-    function connectSocket() {
-      console.log('🔌 Connecting to Socket.IO...');
-      
+
+    function connectSocket(identity) {
+      const authPayload = {
+        id: (identity && typeof identity.id === 'string') ? identity.id : null,
+        email: (identity && typeof identity.email === 'string') ? identity.email : null
+      };
+
       socket = io({
-        transports: ['websocket', 'polling']
+        transports: ['polling'],
+        upgrade: false,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 800
       });
 
       socket.on('connect', () => {
-        console.log('🔌 Socket connected, authenticating...');
         showAuthStatus('Authenticating with Webex...');
-        
-        socket.emit('authenticate', {
-          webex_access_token: webexToken
-        });
+        socket.emit('authenticate', authPayload);
       });
 
-      socket.on('authenticated', (data) => {
-        console.log('✅ Authenticated as:', data.email);
+      socket.on('reconnect', () => {
+        showAuthStatus('Reconnected. Authenticating…');
+        socket.emit('authenticate', authPayload);
+      });
+
+      socket.on('authenticated', () => {
         authenticated = true;
         hideAuthStatus();
-        setupCallEventListener();
+        if (typeof setupCallEventListener === 'function') setupCallEventListener();
       });
 
       socket.on('auth_failed', (data) => {
-        console.error('❌ Authentication failed:', data.error);
-        showAuthError('Authentication failed: ' + data.error);
+        authenticated = false;
+        showAuthError('Authentication failed: ' + (data?.error || 'unknown'));
       });
 
       socket.on('disconnect', () => {
-        console.log('🔌 Socket disconnected');
         authenticated = false;
-        showAuthStatus('Disconnected. Reconnecting...');
+        // status only; do not show the authorize link here
+        showAuthStatus('Disconnected. Reconnecting…');
       });
 
-      socket.on('connect_error', (error) => {
-        console.error('❌ Connection error:', error);
-        showAuthError('Connection failed: ' + error.message);
+      socket.on('connect_error', (err) => {
+        authenticated = false;
+        showAuthStatus('Connection issue: ' + (err?.message || String(err)));
       });
     }
+
+
 
     function showAuthStatus(message) {
       const status = document.getElementById('authStatus');
@@ -176,15 +207,15 @@
         const rps = Array.isArray(call.remoteParticipants)
           ? call.remoteParticipants
           : (call.remoteParticipant ? [call.remoteParticipant] : []);
-        
+
         const rp = rps[0];
         return rp?.phoneNumber || rp?.callerID || call.caller?.phoneNumber || '';
       }
 
       function getLocalNumber(call = {}) {
-        return call.localParticipant?.phoneNumber || 
-               call.localParticipant?.callerID ||
-               call.to?.phoneNumber || '';
+        return call.localParticipant?.phoneNumber ||
+          call.localParticipant?.callerID ||
+          call.to?.phoneNumber || '';
       }
 
       webexApp.on('sidebar:callStateChanged', (call) => {
@@ -197,8 +228,6 @@
         if (lastKey.get(call.id) === key) return;
         lastKey.set(call.id, key);
 
-        console.log(`📞 Call ${state}: remote=${remoteNumber}, local=${localNumber}`);
-
         fetch('/simulate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -210,7 +239,6 @@
             displayName
           })
         }).catch((err) => {
-          console.error('❌ Failed to send call event:', err);
         });
       });
     }
@@ -249,8 +277,8 @@
     tabHist.addEventListener('click', showHist);
 
     function escapeHtml(s) {
-      return String(s ?? '').replace(/[&<>"']/g, c => 
-        ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+      return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
     function initStructuredCard({ name = '—', number = '—', email = '—', agent = '—' } = {}) {
@@ -362,17 +390,14 @@
         const transcript = p.transcript || '';
         const callId = p.call_id;
 
-        console.log(`📞 Event: ${state}, caller: ${remoteNumber}, hasTranscript: ${!!transcript}`);
-
         liveHeader.textContent = remoteNumber || displayName || '';
         liveSub.textContent = `State: ${state}`;
 
         // REQ #9: Call ended - return to idle
         if (state === 'ended') {
-          console.log('☎️ Call ended');
           activeCalls.delete(callId);
           hasTranscript = false;
-          
+
           if (activeCalls.size === 0) {
             setIdle(true);
           }
@@ -383,29 +408,27 @@
 
         // REQ #7: Ringing - show caller with idle bot
         if (state === 'ringing' || state === 'connecting') {
-          console.log('📞 Ringing - idle bot + equalizer');
-          
+
           liveIdle.classList.remove('hidden');
           liveEq.classList.remove('eq--hidden');
           idleText.textContent = `Incoming call from ${remoteNumber}...`;
-          
+
           liveTx.classList.add('hidden');
           noLiveTx.classList.add('hidden');
           hasTranscript = false;
-          
+
           return;
         }
 
         // REQ #8: Connected - show transcript or waiting
         if (state === 'connected') {
           if (transcript && transcript.trim()) {
-            console.log('✅ Transcript - switching to card');
             hasTranscript = true;
-            
+
             liveIdle.classList.add('hidden');
             noLiveTx.classList.add('hidden');
             liveEq.classList.remove('eq--hidden');
-            
+
             if (liveTx.classList.contains('hidden')) {
               initStructuredCard({
                 name: displayName || '—',
@@ -414,12 +437,11 @@
                 agent: '—'
               });
             }
-            
+
             liveTx.classList.remove('hidden');
             addConcernLines(transcript);
-            
+
           } else {
-            console.log('⏳ No transcript');
             liveIdle.classList.add('hidden');
             liveTx.classList.add('hidden');
             liveEq.classList.remove('eq--hidden');
@@ -433,4 +455,5 @@
 
   </script>
 </body>
+
 </html>

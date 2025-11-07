@@ -1,16 +1,25 @@
 # app.py — COMPLETE Webex Call App (All Requirements Met)
 import pathlib, json, secrets
-from flask import Flask, redirect, render_template, request, jsonify, abort
+from flask import Flask, redirect, render_template, request, jsonify, abort, session, url_for
 from flask_socketio import SocketIO, join_room, leave_room, emit
 from datetime import datetime, timedelta
 import os, uuid, requests
+import base64
 
 WEBEX_BASE_API = "https://webexapis.com/v1"
-
+DATA_DIR = pathlib.Path("data")
+DATA_DIR.mkdir(exist_ok=True)
+TOKENS_FILE = DATA_DIR / "oauth_tokens.json"
 ##### -------- CONFIGURATION ----------------------
-WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "MWRkMzFhZmItOThlMC00MmUwLWI5ZTItMmZiNWQyYWVlMmUwZGJkY2I2NTUtZGYy_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "YjJlOWUzZDUtZDg1Ni00NjI3LTk2NTgtMmE4ZjhhMTU0OGY0ZmJmMzBjMTMtM2Iy_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 SIMULATOR_API_KEY = os.environ.get("SIMULATOR_API_KEY", "BKgVaqoVuLcQNOJP9ZBYsHQspMX_p3E_9I2e5eE05Gc")
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "https://3db3bb7f629b.ngrok-free.app").rstrip("/")
+
+WEBEX_CLIENT_ID = os.environ.get("WEBEX_CLIENT_ID", "C74692c778b17a24486310efc2f08f242ed63438a40627061b8677b39b674868f")
+WEBEX_CLIENT_SECRET = os.environ.get("WEBEX_CLIENT_SECRET", "0fd8ab47b5ed61c6bd1d7873b7f2c5bb44b12b0e67942ce7541dae8ee228c5ae")
+WEBEX_REDIRECT_URI = os.environ.get("WEBEX_REDIRECT_URI", "https://servantlike-thermochemically-maison.ngrok-free.dev/oauth/callback")
+WEBEX_SCOPES = os.environ.get("WEBEX_SCOPES", "spark:people_read") 
+
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(32))
 ##### ----------------------------------------------
 
@@ -24,11 +33,76 @@ DATA_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
-
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading",
+                    engineio_logger=False, logger=False,
+                    ping_timeout=60, ping_interval=25)
 # ============================================================================
 # WEBEX API HELPERS
 # ============================================================================
+#OAUTH_TOKENS = {}  # { email: {"access_token": "...", "refresh_token": "...", "expires_at": 1736292000} }
+def load_tokens():
+    """Load tokens from disk"""
+    if TOKENS_FILE.exists():
+        try:
+            with open(TOKENS_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"⚠️ Failed to load tokens: {e}")
+    return {}
+
+def save_tokens_for(key: str, token_json: dict):
+    expires_in = token_json.get("expires_in", 3600)
+    OAUTH_TOKENS[key] = {
+        "access_token": token_json["access_token"],
+        "refresh_token": token_json.get("refresh_token"),
+        "expires_at": datetime.utcnow().timestamp() + expires_in - 60,
+    }
+    save_all_tokens(OAUTH_TOKENS)
+
+def save_all_tokens(tokens_dict):
+    """Save all tokens to disk"""
+    try:
+        with open(TOKENS_FILE, 'w') as f:
+            json.dump(tokens_dict, f, indent=2)
+        print(f"💾 Saved {len(tokens_dict)} token entries to disk")
+    except Exception as e:
+        print(f"⚠️ Failed to save tokens: {e}")
+    
+
+OAUTH_TOKENS = load_tokens()
+
+def get_token_for(key: str | None):
+    if not key or not isinstance(key, str):
+        return None
+    entry = OAUTH_TOKENS.get(key)
+    if not entry:
+        return None
+    if entry["expires_at"] <= datetime.now().timestamp() and entry.get("refresh_token"):
+        r = requests.post(
+            "https://webexapis.com/v1/access_token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": WEBEX_CLIENT_ID,
+                "client_secret": WEBEX_CLIENT_SECRET,
+                "refresh_token": entry["refresh_token"],
+            },
+            timeout=10,
+        )
+        if not r.ok:
+            return None
+        save_tokens_for(key, r.json())
+        entry = OAUTH_TOKENS[key]
+    return entry["access_token"]
+
+def save_tokens_both(identity: dict, tokens: dict):
+    """Save tokens under both email and id (whichever exist), using your existing helper."""
+    email = identity.get("email")
+    pid   = identity.get("id")
+    if pid:
+        save_tokens_for(pid, tokens)
+    if email:
+        save_tokens_for(email, tokens)
+    
 
 def get_webex_person_by_phone(phone_number: str):
     """Query Webex API to find person_id for a phone number"""
@@ -85,41 +159,127 @@ def require_api_key():
         return False, (jsonify({"error": "unauthorized"}), 401)
     return True, None
 
+# ============================================================================
+# MAIN ENDPOINTS
+# ============================================================================
+@app.route("/debug/tokens")
+def debug_tokens():
+    """DEBUG ONLY - Remove in production!"""
+    return jsonify({
+        "stored_tokens": {
+            key: {
+                "has_access_token": bool(val.get("access_token")),
+                "has_refresh_token": bool(val.get("refresh_token")),
+                "expires_at": val.get("expires_at"),
+                "expired": val.get("expires_at", 0) <= datetime.utcnow().timestamp() if val.get("expires_at") else None
+            }
+            for key, val in OAUTH_TOKENS.items()
+        }
+    })
+
+@app.route("/oauth/login")
+def oauth_login():
+    state = secrets.token_urlsafe(32)
+    session["oauth_state"] = state
+    auth_url = (
+        "https://webexapis.com/v1/authorize"
+        f"?client_id={WEBEX_CLIENT_ID}"
+        "&response_type=code"
+        f"&redirect_uri={requests.utils.quote(WEBEX_REDIRECT_URI, safe='')}"
+        f"&scope={requests.utils.quote(WEBEX_SCOPES)}"
+        f"&state={state}"
+    )
+    return redirect(auth_url)
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    code = request.args.get("code")
+    state = request.args.get("state")
+    if not code or not state or state != session.get("oauth_state"):
+        return abort(400, "Invalid OAuth state or code")
+    r = requests.post(
+        f"{WEBEX_BASE_API}/access_token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": WEBEX_CLIENT_ID,
+            "client_secret": WEBEX_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": WEBEX_REDIRECT_URI,
+        },
+        timeout=10,
+    )
+    if not r.ok:
+        return abort(400, f"Token exchange failed: {r.text}")
+    tokens = r.json()
+    # verify and bind to email
+    me = requests.get(
+        f"{WEBEX_BASE_API}/people/me",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        timeout=10,
+    )
+    me.raise_for_status()
+    body = me.json()            
+    person_id = body.get("id")
+    email = (body.get("emails") or [None])[0]
+    print(f"email={email}")
+    print(f"person_id={person_id}")
+
+    if person_id:
+        save_tokens_for(person_id, tokens)   # save by id
+    if email:
+        save_tokens_for(email, tokens)
+    
+    app.logger.info("stored token for keys: %s", [k for k in OAUTH_TOKENS.keys()])
+    return redirect("/")
+
+@app.route("/auth/status")
+def auth_status():
+    email = request.args.get("email")
+    pid   = request.args.get("id")
+
+    token = None  # <-- initialize
+
+    if not token and pid:
+        token = get_token_for(pid)
+
+    # try by email (and guard +/space variants)
+    if email and not token:
+        token = get_token_for(email)
+        if " " in email:
+            token = get_token_for(email.replace(" ", "+"))
+
+    # fall back to personId
+    
+
+    authorized = bool(token)
+    app.logger.info("auth_status id=%s email=%s authorized=%s", (pid[:12] + '…') if pid else None, email, authorized)
+    return jsonify({"authorized": authorized})
+
+
 @socketio.on("authenticate")
 def handle_authenticate(data):
-    """
-    Authenticate user with Webex token.
-    Socket sends: { webex_access_token: "..." }
-    """
-    token = data.get("webex_access_token")
-    if not token:
-        emit("auth_failed", {"error": "No token provided"})
+    pid   = data.get("id")
+    email = data.get("email")
+    access_token = get_token_for(pid) or get_token_for(email)
+    if not access_token:
+        emit("auth_failed", {"error": "No valid token; authorize via /oauth/login"})
         return
-    
-    # Verify with Webex API
-    person = get_webex_person_by_token(token)
+    person = get_webex_person_by_token(access_token)
     if not person:
-        emit("auth_failed", {"error": "Invalid Webex token"})
+        emit("auth_failed", {"error": "Invalid or expired token"})
         return
-    
-    # Store user session
     WEBEX_USER_SESSIONS[request.sid] = {
         "webex_person_id": person["id"],
-        "webex_email": person["email"],
-        "displayName": person["displayName"],
-        "phone_numbers": person["phoneNumbers"],
-        "authenticated_at": datetime.utcnow()
+        "webex_email": person.get("email"),
+        "displayName": person.get("displayName"),
+        "phone_numbers": person.get("phoneNumbers"),
+        "authenticated_at": datetime.now(),
     }
-    
-    # Join user-specific room
-    user_room = f"webex_user:{person['id']}"
-    join_room(user_room)
-    
-    print(f"✅ Authenticated: {person['email']} (room: {user_room})")
+    join_room(f"webex_user:{person['id']}")
     emit("authenticated", {
         "webex_person_id": person["id"],
-        "email": person["email"],
-        "displayName": person["displayName"]
+        "email": person.get("email"),
+        "displayName": person.get("displayName"),
     })
 
 @socketio.on("disconnect")
@@ -129,10 +289,6 @@ def handle_disconnect():
         user = WEBEX_USER_SESSIONS[request.sid]
         print(f"🚪 User disconnected: {user['webex_email']}")
         del WEBEX_USER_SESSIONS[request.sid]
-
-# ============================================================================
-# MAIN ENDPOINTS
-# ============================================================================
 
 @app.after_request
 def set_headers(resp):
