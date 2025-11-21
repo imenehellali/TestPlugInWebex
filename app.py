@@ -5,6 +5,7 @@ from transcribe import transcribe_file
 from summarize import summarize_text
 from flask import Flask, redirect, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO
+from flask_cors import CORS
 from datetime import datetime
 import os, uuid, json, pathlib, shutil, io, requests
 
@@ -43,6 +44,7 @@ PENDING_CALLS = {}  # {target_id: [{call_id, caller, summary, timestamp}]}
 ACTIVE_CALLS = {}  # {call_id: {assigned_to, target_id, target_type}}
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # in-memory store; persisted on call end

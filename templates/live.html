@@ -148,20 +148,34 @@
       const localNumber = getLocalNumber(call);
       const displayName = call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || '';
 
-      console.log('Call state changed:', { state, remoteNumber, localNumber, displayName });
+      console.log('[CALL] State changed:', { state, remoteNumber, localNumber, displayName, currentUserId });
+
+      const payload = {
+        event: state,
+        call_id: call.id,
+        remoteNumber,
+        localNumber,
+        displayName,
+        user_id: currentUserId  // Add user ID so server knows who to emit to
+      };
+
+      console.log('[CALL] Sending to /simulate:', payload);
 
       fetch('/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: state,
-          call_id: call.id,
-          remoteNumber,
-          localNumber,
-          displayName,
-          user_id: currentUserId  // Add user ID so server knows who to emit to
-        })
-      }).catch(err => console.error('Simulate error:', err));
+        body: JSON.stringify(payload)
+      })
+      .then(response => {
+        console.log('[CALL] /simulate response:', response.status, response.ok);
+        return response.json();
+      })
+      .then(data => {
+        console.log('[CALL] /simulate result:', data);
+      })
+      .catch(err => {
+        console.error('[CALL] Simulate error:', err);
+      });
     }
 
     function getLocalNumber(call = {}) {
