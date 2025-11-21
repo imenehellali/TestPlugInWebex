@@ -55,6 +55,27 @@ def _bearer():
     """Get the Webex bearer token from environment or default"""
     return WEBEX_BEARER
 
+# Load AUTH_TOKENS from disk on startup
+def load_auth_tokens():
+    """Load all saved auth tokens from disk into memory"""
+    print("[STARTUP] Loading auth tokens from disk...")
+    count = 0
+    for auth_file in AUTH_DIR.glob("*.json"):
+        try:
+            with open(auth_file, "r") as f:
+                auth_data = json.load(f)
+                # Token IS the Webex UID (target_id)
+                token = auth_data["target_id"]
+                AUTH_TOKENS[token] = auth_data
+                count += 1
+                print(f"[STARTUP] Loaded token for {auth_data.get('target_name', 'Unknown')}: {token[:20]}...")
+        except Exception as e:
+            print(f"[STARTUP] Error loading {auth_file}: {e}")
+    print(f"[STARTUP] Loaded {count} auth tokens from disk")
+
+# Load tokens on startup
+load_auth_tokens()
+
 # Socket.IO event handlers
 @socketio.on('connect')
 def handle_connect():
