@@ -298,6 +298,9 @@ def generate_auth_token():
     Generate a POST API endpoint for a user/group.
     Body: {target_id, target_type: 'user'|'group'|'external', target_name}
     Returns: {token, post_url}
+
+    NOTE: We use the Webex UID directly as the token (no random generation).
+    The token IS the Webex UID, which is also the Socket.IO room name.
     """
     data = request.get_json(force=True)
     target_id = data.get("target_id")
@@ -309,7 +312,10 @@ def generate_auth_token():
     if not target_id or not target_type:
         return jsonify({"error": "target_id and target_type required"}), 400
 
-    token = secrets.token_urlsafe(32)
+    # Use Webex UID directly as token (no random generation)
+    token = target_id
+
+    # Store metadata (token = Webex UID)
     AUTH_TOKENS[token] = {
         "target_id": target_id,
         "target_type": target_type,
@@ -317,14 +323,14 @@ def generate_auth_token():
         "created": datetime.utcnow().isoformat() + "Z"
     }
 
-    print(f"[generate_auth_token] Generated token: {token[:10]}... for Webex UID: {target_id[:20]}...")
+    print(f"[generate_auth_token] Using Webex UID as token: {token[:20]}...")
 
     # Save to disk
     auth_file = AUTH_DIR / f"{target_id}.json"
     with open(auth_file, "w") as f:
         json.dump(AUTH_TOKENS[token], f, indent=2)
 
-    # Generate POST URL
+    # Generate POST URL - token is the Webex UID
     base_url = request.host_url.rstrip("/")
     post_url = f"{base_url}/api/forward/{token}"
 
