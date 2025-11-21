@@ -164,12 +164,19 @@
 
         // Check if user can access admin endpoints
         try {
+          console.log('Checking admin access...');
           const usersCheck = await fetch('/api/users/list');
+          console.log('Admin check response:', usersCheck.status, usersCheck.ok);
+
           if (usersCheck.ok) {
             isAdmin = true;
+            console.log('Admin access granted!');
+          } else {
+            const errorText = await usersCheck.text();
+            console.log('Admin check failed:', usersCheck.status, errorText);
           }
         } catch (e) {
-          // Not admin
+          console.error('Admin check error:', e);
         }
 
         if (!isAdmin) {

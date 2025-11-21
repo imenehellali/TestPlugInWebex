@@ -48,13 +48,22 @@
 
         // Check if user is admin: show Authorization tab if they can access users list
         try {
+          console.log('Checking admin access...');
           const usersCheck = await fetch('/api/users/list');
+          console.log('Admin check response:', usersCheck.status, usersCheck.ok);
+
           if (usersCheck.ok) {
+            const data = await usersCheck.json();
+            console.log('Users list response:', data);
             document.getElementById('tabAuth').style.display = 'block';
             isAdmin = true;
+            console.log('Admin access granted!');
+          } else {
+            const errorText = await usersCheck.text();
+            console.log('Admin check failed:', usersCheck.status, errorText);
           }
         } catch (e) {
-          // Not admin, that's fine
+          console.error('Admin check error:', e);
         }
       }
 

@@ -121,12 +121,18 @@ def auth_me():
 def list_users():
     """List all users (requires admin scope)"""
     try:
+        bearer = _bearer()
+        print(f"[list_users] Using bearer token: {bearer[:20]}...")
         r = requests.get(f"{WEBEX_BASE_API}/people",
-                        headers={"Authorization": f"Bearer {_bearer()}"},
+                        headers={"Authorization": f"Bearer {bearer}"},
                         params={"max": 100},
                         timeout=10)
+        print(f"[list_users] Webex API response: {r.status_code}")
+        if not r.ok:
+            print(f"[list_users] Error response: {r.text[:200]}")
         return (r.text, r.status_code, {"Content-Type": "application/json"})
     except Exception as e:
+        print(f"[list_users] Exception: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/groups/list")
@@ -317,7 +323,7 @@ def get_pending_calls(user_id):
 def simulate():
     """
     Accepts events from the Webex bridge (or your simulator):
-      {event, call_id, caller, transcript, recording_url?}
+      {event, call_id, caller, transcript, recording_url?, user_id}
     """
     data = request.get_json(force=True)
     if not data or "event" not in data:
@@ -326,10 +332,13 @@ def simulate():
     call_id   = data.get("call_id") or str(uuid.uuid4())
     caller    = (data.get("remoteNumber") or data.get("caller") or "unknown").strip()
     display_name = (data.get("displayName") or "").strip()
+    user_id   = data.get("user_id")  # User who's in the call
 
     state     = (data.get("event") or "unknown").lower()
     transcript= data.get("transcript", "")
     rec_url   = data.get("recording_url")  # optional, if you wire webhooks later
+
+    print(f"[simulate] Call state: {state}, caller: {caller}, displayName: {display_name}, user_id: {user_id}")
 
     entry = CALL_LOGS.setdefault(call_id, {
         "caller": caller,
@@ -341,7 +350,7 @@ def simulate():
         entry["caller"] = caller
         if caller.lower() != "unknown":
             LAST_ACTIVE_BY_NUMBER[caller] = call_id
-    
+
     if rec_url:
         entry["recording_url"] = rec_url
 
@@ -351,7 +360,10 @@ def simulate():
         "transcript": transcript
     })
 
-    # push to live panel
+    # Emit to specific user's room if user_id provided, otherwise broadcast
+    emit_target = user_id if user_id else None
+    print(f"[simulate] Emitting call_event to: {emit_target or 'ALL'}")
+
     socketio.emit("call_event", {
         "call_id": call_id,
         "caller": entry["caller"],
@@ -359,7 +371,7 @@ def simulate():
         "displayName": display_name,
         "state": state,
         "transcript": transcript
-    })
+    }, room=emit_target)
 
     # on end: persist locally
     if state == "ended":
