@@ -12,7 +12,7 @@
   <div class="topbar">
     <button id="tabLive" class="tab tab--active">Live</button>
     <button id="tabHist" class="tab">History</button>
-    <button id="tabAuth" class="tab" style="display:none">Authorization</button>
+    <button id="tabAuth" class="tab">Authorization</button>
     <span id="userInfo" style="margin-left: auto; font-size: 12px; color: #9aa7bd;"></span>
   </div>
 
@@ -89,38 +89,68 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
-        // Show Authorization tab to EVERYONE (no admin check needed)
-        console.log('Showing Authorization tab to all users');
-        document.getElementById('tabAuth').style.display = 'block';
-        isAdmin = true;
-
         initSocket();
       }
 
       // Listen to ALL possible call events for debugging
-      console.log('Registering call event listeners...');
+      console.log('[INIT] Registering call event listeners...');
 
-      webexApp.on('application:callStateChanged', (call) => {
-        console.log('[EVENT] application:callStateChanged', call);
-        handleCallStateChange(call);
+      // Try multiple event names (SDK v2 might use different names)
+      const callEvents = [
+        'application:callStateChanged',
+        'application:incomingCall',
+        'application:outgoingCall',
+        'application:activeCall',
+        'call:stateChanged',
+        'call:incoming',
+        'call:connected',
+        'call:disconnected'
+      ];
+
+      callEvents.forEach(eventName => {
+        webexApp.on(eventName, (call) => {
+          console.log(`[EVENT] ${eventName}`, call);
+          handleCallStateChange(call);
+        });
       });
 
-      webexApp.on('application:incomingCall', (call) => {
-        console.log('[EVENT] application:incomingCall', call);
-        handleCallStateChange(call);
-      });
+      console.log('[INIT] Call event listeners registered for:', callEvents);
 
-      webexApp.on('application:outgoingCall', (call) => {
-        console.log('[EVENT] application:outgoingCall', call);
-        handleCallStateChange(call);
-      });
+      // BACKUP METHOD: Poll for active calls every 2 seconds
+      console.log('[INIT] Starting call polling backup method...');
+      let lastCallId = null;
 
-      webexApp.on('application:activeCall', (call) => {
-        console.log('[EVENT] application:activeCall', call);
-        handleCallStateChange(call);
-      });
+      setInterval(async () => {
+        try {
+          // Try to get context which includes call info
+          const context = await webexApp.context.getUser();
+          console.log('[POLL] User context:', context);
 
-      console.log('Call event listeners registered!');
+          // Check if there's an active call
+          if (window.Webex && window.Webex.calling) {
+            const calls = window.Webex.calling.getCalls();
+            console.log('[POLL] Active calls:', calls);
+
+            if (calls && calls.length > 0) {
+              const activeCall = calls[0];
+              if (activeCall.id !== lastCallId) {
+                console.log('[POLL] NEW CALL DETECTED!', activeCall);
+                lastCallId = activeCall.id;
+                handleCallStateChange(activeCall);
+              }
+            } else if (lastCallId) {
+              // Call ended
+              console.log('[POLL] Call ended');
+              lastCallId = null;
+              resetLiveView();
+            }
+          }
+        } catch (e) {
+          // Silently ignore polling errors
+        }
+      }, 2000);
+
+      console.log('[INIT] Call polling started');
     })();
 
     async function tryInitializeWithoutSDK() {
@@ -131,11 +161,6 @@
           currentUserInfo = await response.json();
           currentUserId = currentUserInfo.id;
           document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
-
-          // Show Authorization tab - let them at least generate endpoints
-          console.log('Showing Authorization tab (SDK-less mode)');
-          document.getElementById('tabAuth').style.display = 'block';
-          isAdmin = true;
 
           // Initialize socket for testing
           initSocket();

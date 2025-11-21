@@ -106,17 +106,10 @@
       <div class="auth-desc">Generate secure POST API endpoints for users and groups to receive AI call summaries.</div>
     </div>
 
-    <!-- My Own Endpoint -->
-    <div class="group">
-      <div class="head">My Own Endpoint</div>
-      <div class="item user-row">
-        <div class="user-info">
-          <div class="user-name" id="myDisplayName">Loading...</div>
-          <div class="user-detail" id="myEmail"></div>
-        </div>
-        <button class="btn-gen" id="btnGenMyself">Generate My Endpoint</button>
-        <div class="url-display" id="myUrl"></div>
-      </div>
+    <!-- My Own Endpoint - Simple Card -->
+    <div class="card" style="text-align: center;">
+      <button class="btn-gen" id="btnGenMyself" style="display: inline-block; margin: 0 auto;">Generate My Own Endpoint</button>
+      <div class="url-display" id="myUrl" style="margin-top: 16px;"></div>
     </div>
 
     <!-- Internal Users -->
@@ -175,13 +168,56 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
-        // Populate "My Own Endpoint" section
-        document.getElementById('myDisplayName').textContent = currentUserInfo.displayName || 'Me';
-        document.getElementById('myEmail').textContent = currentUserInfo.emails?.[0] || '';
-
         // Setup "Generate My Endpoint" button
         document.getElementById('btnGenMyself').addEventListener('click', async () => {
-          await generateEndpoint(currentUserId, 'user', currentUserInfo.displayName || 'Me', 'myUrl');
+          console.log('[AUTH] Generate My Endpoint clicked');
+          const btn = document.getElementById('btnGenMyself');
+          btn.disabled = true;
+          btn.textContent = 'Generating...';
+
+          try {
+            const response = await fetch('/api/auth/generate', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                target_id: currentUserId,
+                target_type: 'user',
+                target_name: currentUserInfo.displayName || 'Me'
+              })
+            });
+
+            if (!response.ok) {
+              throw new Error(`Failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('[AUTH] Generated endpoint:', data);
+
+            const urlDisplay = document.getElementById('myUrl');
+            urlDisplay.innerHTML = `
+              <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">✓ Endpoint Generated</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" value="${data.post_url}" readonly
+                  style="flex: 1; padding: 8px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
+                <button onclick="navigator.clipboard.writeText('${data.post_url}').then(() => showCopyToast())"
+                  style="padding: 8px 16px; background: #18e299; color: #0b1020; border: none; border-radius: 4px; font-weight: 600; cursor: pointer;">
+                  Copy
+                </button>
+              </div>
+            `;
+            urlDisplay.style.display = 'block';
+
+            btn.disabled = false;
+            btn.textContent = 'Generate My Own Endpoint';
+          } catch (error) {
+            console.error('[AUTH] Generate error:', error);
+            btn.disabled = false;
+            btn.textContent = 'Generate My Own Endpoint';
+
+            const urlDisplay = document.getElementById('myUrl');
+            urlDisplay.innerHTML = `<div style="color: #e78888;">Error: ${error.message}</div>`;
+            urlDisplay.style.display = 'block';
+          }
         });
 
         // Everyone can access Authorization page (no admin check)
@@ -360,7 +396,10 @@
       const userName = document.getElementById('extUserName').value.trim() || 'External User';
 
       if (!userId) {
-        alert('Please enter a User ID or Phone Number');
+        const extUrl = document.getElementById('extUrl');
+        extUrl.innerHTML = '<div style="color: #e78888; padding: 12px; background: rgba(231, 136, 136, 0.1); border-radius: 6px;">⚠️ Please enter a User ID or Phone Number</div>';
+        extUrl.style.display = 'block';
+        setTimeout(() => { extUrl.style.display = 'none'; }, 4000);
         return;
       }
 

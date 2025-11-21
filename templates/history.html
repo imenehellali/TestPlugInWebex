@@ -11,7 +11,7 @@
   <div class="topbar">
     <button id="tabLive" class="tab">Live</button>
     <button id="tabHist" class="tab tab--active">History</button>
-    <button id="tabAuth" class="tab" style="display:none">Authorization</button>
+    <button id="tabAuth" class="tab">Authorization</button>
     <span id="userInfo" style="margin-left: auto; font-size: 12px; color: #9aa7bd;"></span>
   </div>
 
@@ -45,11 +45,6 @@
         currentUserInfo = await response.json();
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
-
-        // Show Authorization tab to EVERYONE (no admin check needed)
-        console.log('Showing Authorization tab to all users');
-        document.getElementById('tabAuth').style.display = 'block';
-        isAdmin = true;
       }
 
       loadHistory();
