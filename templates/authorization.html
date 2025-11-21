@@ -171,38 +171,65 @@
         // Setup "Generate My Endpoint" button
         document.getElementById('btnGenMyself').addEventListener('click', async () => {
           console.log('[AUTH] Generate My Endpoint clicked');
+          console.log('[AUTH] currentUserId:', currentUserId);
+          console.log('[AUTH] currentUserInfo:', currentUserInfo);
+
           const btn = document.getElementById('btnGenMyself');
+          const urlDisplay = document.getElementById('myUrl');
+
+          if (!currentUserId) {
+            console.error('[AUTH] currentUserId is not set!');
+            urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: User ID not available. Please reload the page.</div>';
+            urlDisplay.style.display = 'block';
+            return;
+          }
+
           btn.disabled = true;
           btn.textContent = 'Generating...';
+          urlDisplay.style.display = 'none';
 
           try {
+            const payload = {
+              target_id: currentUserId,
+              target_type: 'user',
+              target_name: currentUserInfo?.displayName || 'Me'
+            };
+
+            console.log('[AUTH] Sending request:', payload);
+
             const response = await fetch('/api/auth/generate', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                target_id: currentUserId,
-                target_type: 'user',
-                target_name: currentUserInfo.displayName || 'Me'
-              })
+              body: JSON.stringify(payload)
             });
 
+            console.log('[AUTH] Response status:', response.status);
+
             if (!response.ok) {
-              throw new Error(`Failed: ${response.status}`);
+              const errorText = await response.text();
+              console.error('[AUTH] Response error:', errorText);
+              throw new Error(`Failed: ${response.status} - ${errorText}`);
             }
 
             const data = await response.json();
             console.log('[AUTH] Generated endpoint:', data);
 
-            const urlDisplay = document.getElementById('myUrl');
+            if (!data.post_url) {
+              throw new Error('No post_url in response');
+            }
+
             urlDisplay.innerHTML = `
-              <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">✓ Endpoint Generated</div>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" value="${data.post_url}" readonly
-                  style="flex: 1; padding: 8px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
-                <button onclick="navigator.clipboard.writeText('${data.post_url}').then(() => showCopyToast())"
-                  style="padding: 8px 16px; background: #18e299; color: #0b1020; border: none; border-radius: 4px; font-weight: 600; cursor: pointer;">
-                  Copy
-                </button>
+              <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">✓ Endpoint Generated Successfully</div>
+              <div style="background: rgba(24, 226, 153, 0.1); padding: 12px; border-radius: 6px; border: 1px solid #18e299;">
+                <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Your POST API URL:</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="text" value="${data.post_url}" readonly id="generatedUrl"
+                    style="flex: 1; padding: 10px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
+                  <button onclick="copyGeneratedUrl()"
+                    style="padding: 10px 20px; background: #18e299; color: #0b1020; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                    📋 Copy
+                  </button>
+                </div>
               </div>
             `;
             urlDisplay.style.display = 'block';
@@ -214,8 +241,7 @@
             btn.disabled = false;
             btn.textContent = 'Generate My Own Endpoint';
 
-            const urlDisplay = document.getElementById('myUrl');
-            urlDisplay.innerHTML = `<div style="color: #e78888;">Error: ${error.message}</div>`;
+            urlDisplay.innerHTML = `<div style="color: #e78888; padding: 12px; background: rgba(231, 136, 136, 0.1); border-radius: 6px;">⚠️ Error: ${error.message}</div>`;
             urlDisplay.style.display = 'block';
           }
         });
@@ -441,6 +467,30 @@
         btn.disabled = false;
       }
     });
+
+    // Copy generated URL function
+    function copyGeneratedUrl() {
+      const input = document.getElementById('generatedUrl');
+      if (input) {
+        input.select();
+        navigator.clipboard.writeText(input.value).then(() => {
+          showCopyToast('URL copied to clipboard!');
+        }).catch(err => {
+          console.error('Failed to copy:', err);
+          showCopyToast('Failed to copy');
+        });
+      }
+    }
+
+    // Show copy toast notification
+    function showCopyToast(message = 'Copied!') {
+      const toast = document.createElement('div');
+      toast.className = 'copy-toast';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      setTimeout(() => { toast.remove(); }, 3000);
+    }
 
     // Navigation
     document.getElementById('tabLive').addEventListener('click', () => {

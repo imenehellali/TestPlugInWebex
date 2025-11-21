@@ -240,14 +240,25 @@ def auth_me():
     bearer = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not bearer:
         bearer = _bearer()
+
+    print(f"[auth_me] Using bearer token: {bearer[:20] if bearer else 'NONE'}...")
+
     try:
         r = requests.get(f"{WEBEX_BASE_API}/people/me",
                         headers={"Authorization": f"Bearer {bearer}"},
                         timeout=10)
+
+        print(f"[auth_me] Response: {r.status_code}")
+
         if r.ok:
-            return jsonify(r.json())
-        return jsonify({"error": "unauthorized"}), 401
+            user_data = r.json()
+            print(f"[auth_me] User: {user_data.get('displayName')} (ID: {user_data.get('id', '')[:20]}...)")
+            return jsonify(user_data)
+
+        print(f"[auth_me] Error: {r.text[:200]}")
+        return jsonify({"error": "unauthorized", "details": r.text}), 401
     except Exception as e:
+        print(f"[auth_me] Exception: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/users/list")
@@ -650,12 +661,34 @@ def ingest():
 
 @app.route("/api/calls/history")
 def api_calls_history():
-    r = requests.get(
-        f"{WEBEX_BASE}/v1/telephony/calls/history",
-        headers={"Authorization": f"Bearer {_bearer()}"},
-        timeout=10,
-    )
-    return (r.text, r.status_code, {"Content-Type": "application/json"})
+    """Get call history for current user"""
+    try:
+        bearer = _bearer()
+        print(f"[api_calls_history] Using bearer token: {bearer[:20]}...")
+
+        # Try to get call history
+        r = requests.get(
+            f"{WEBEX_BASE_API}/telephony/calls/history",
+            headers={"Authorization": f"Bearer {bearer}"},
+            params={"max": 100},
+            timeout=10,
+        )
+
+        print(f"[api_calls_history] Response: {r.status_code}")
+
+        if r.status_code == 503:
+            print(f"[api_calls_history] 503 error - endpoint might not be available")
+            # Return empty list instead of error
+            return jsonify({"items": []}), 200
+
+        if not r.ok:
+            print(f"[api_calls_history] Error: {r.text[:200]}")
+
+        return (r.text, r.status_code, {"Content-Type": "application/json"})
+    except Exception as e:
+        print(f"[api_calls_history] Exception: {e}")
+        # Return empty list instead of crashing
+        return jsonify({"items": []}), 200
 
 @app.route("/api/cdr_feed")
 def api_cdr_feed():
