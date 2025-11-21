@@ -6,119 +6,77 @@
   <script src="https://unpkg.com/@webex/embedded-app-sdk@2"></script>
   <link rel="stylesheet" href="/static/app.css">
   <style>
-    .auth-section {
-      margin-bottom: 24px;
-    }
-    .auth-header {
-      font-size: 18px;
-      font-weight: 600;
-      color: #68dbc0;
-      margin-bottom: 12px;
-    }
-    .user-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .user-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: #0b1020;
-      border-radius: 8px;
-      padding: 12px;
-    }
-    .user-info {
-      flex: 1;
-    }
-    .user-name {
-      font-weight: 600;
-      color: #e6eefb;
-    }
-    .user-detail {
-      font-size: 12px;
-      color: #9aa7bd;
-      margin-top: 4px;
-    }
+    .intro { color: #9aa7bd; margin-bottom: 24px; line-height: 1.5; }
+    .user-item { display: flex; justify-content: space-between; align-items: center; }
+    .user-info { flex: 1; min-width: 0; }
+    .user-name { font-weight: 600; color: #e6eefb; }
+    .user-detail { font-size: 12px; color: #9aa7bd; margin-top: 2px; }
     .btn-generate {
       padding: 8px 16px;
-      background: #18e299;
+      background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%, #7b8cff 100%);
       color: #0b1020;
       border: none;
       border-radius: 6px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
+      box-shadow: 0 2px 8px rgba(24,226,153,0.2);
+      margin-left: 12px;
     }
-    .btn-generate:hover {
-      background: #20f0a5;
-    }
-    .btn-generate:disabled {
-      background: #1f334d;
-      color: #9aa7bd;
-      cursor: not-allowed;
-    }
+    .btn-generate:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(24,226,153,0.3); }
+    .btn-generate:disabled { background: #1f334d; color: #9aa7bd; cursor: not-allowed; transform: none; box-shadow: none; }
     .generated-url {
+      grid-column: 1 / -1;
       margin-top: 8px;
-      padding: 8px;
-      background: #132032;
+      padding: 10px;
+      background: rgba(24,226,153,0.1);
+      border: 1px solid rgba(24,226,153,0.3);
       border-radius: 6px;
-      font-size: 12px;
-      color: #68dbc0;
+      font-size: 11px;
+      color: #18e299;
       word-break: break-all;
+      font-family: monospace;
       display: none;
     }
     .copy-notification {
       position: fixed;
       top: 20px;
       right: 20px;
-      background: #18e299;
+      background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%);
       color: #0b1020;
       padding: 12px 20px;
       border-radius: 8px;
       font-weight: 600;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      box-shadow: 0 6px 20px rgba(24,226,153,0.4);
       z-index: 1000;
       animation: slideIn 0.3s ease-out;
     }
     @keyframes slideIn {
-      from {
-        transform: translateX(100%);
-        opacity: 0;
-      }
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
     }
-    .external-form {
-      background: #0b1020;
-      border-radius: 8px;
-      padding: 16px;
-      margin-top: 12px;
-    }
-    .form-group {
-      margin-bottom: 12px;
-    }
+    .form-group { margin-bottom: 12px; }
     .form-label {
       display: block;
       font-weight: 600;
       color: #e6eefb;
       margin-bottom: 6px;
-      font-size: 14px;
+      font-size: 13px;
     }
     .form-input {
       width: 100%;
       padding: 10px;
-      background: #132032;
+      background: #0b1020;
       border: 1px solid #1f334d;
       border-radius: 6px;
       color: #e6eefb;
       font-size: 14px;
+      box-sizing: border-box;
     }
     .form-input:focus {
       outline: none;
       border-color: #18e299;
+      box-shadow: 0 0 0 3px rgba(24,226,153,0.1);
     }
   </style>
 </head>
@@ -134,39 +92,39 @@
   <div class="container">
     <div class="card">
       <h2 style="margin-top: 0; color: #68dbc0;">Authorization Management</h2>
-      <p style="color: #9aa7bd; margin-bottom: 24px;">Generate POST API endpoints for users and groups to receive AI call summaries.</p>
+      <p class="intro">Generate secure POST API endpoints for users and groups to receive AI call summaries.</p>
+    </div>
 
-      <!-- Internal Users -->
-      <div class="auth-section">
-        <div class="auth-header">Internal Users</div>
-        <div class="user-list" id="userList">
-          <div style="color: #9aa7bd; text-align: center; padding: 20px;">Loading users...</div>
-        </div>
+    <!-- Internal Users -->
+    <div class="group">
+      <div class="head">Internal Users</div>
+      <div id="userList">
+        <div class="item" style="text-align: center; color: #9aa7bd;">Loading users...</div>
       </div>
+    </div>
 
-      <!-- User Groups -->
-      <div class="auth-section">
-        <div class="auth-header">User Groups</div>
-        <div class="user-list" id="groupList">
-          <div style="color: #9aa7bd; text-align: center; padding: 20px;">Loading groups...</div>
-        </div>
+    <!-- User Groups -->
+    <div class="group">
+      <div class="head">User Groups</div>
+      <div id="groupList">
+        <div class="item" style="text-align: center; color: #9aa7bd;">Loading groups...</div>
       </div>
+    </div>
 
-      <!-- External Users -->
-      <div class="auth-section">
-        <div class="auth-header">External Users</div>
-        <div class="external-form">
-          <div class="form-group">
-            <label class="form-label">User ID / Phone Number</label>
-            <input type="text" id="extUserId" class="form-input" placeholder="+491234567890 or external_user_id">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Display Name</label>
-            <input type="text" id="extUserName" class="form-input" placeholder="Delivery Person">
-          </div>
-          <button class="btn-generate" id="btnGenerateExternal">Generate External User Endpoint</button>
-          <div class="generated-url" id="extGeneratedUrl"></div>
+    <!-- External Users -->
+    <div class="group">
+      <div class="head">External Users</div>
+      <div class="item">
+        <div class="form-group">
+          <label class="form-label">User ID / Phone Number</label>
+          <input type="text" id="extUserId" class="form-input" placeholder="+491234567890 or external_user_id">
         </div>
+        <div class="form-group">
+          <label class="form-label">Display Name</label>
+          <input type="text" id="extUserName" class="form-input" placeholder="Delivery Person">
+        </div>
+        <button class="btn-generate" id="btnGenerateExternal">Generate Endpoint</button>
+        <div class="generated-url" id="extGeneratedUrl"></div>
       </div>
     </div>
   </div>
@@ -224,7 +182,7 @@
         userList.innerHTML = '';
         for (const user of users) {
           const item = document.createElement('div');
-          item.className = 'user-item';
+          item.className = 'item user-item';
           item.innerHTML = `
             <div class="user-info">
               <div class="user-name">${user.displayName || 'Unknown'}</div>
@@ -263,7 +221,7 @@
         groupList.innerHTML = '';
         for (const group of groups) {
           const item = document.createElement('div');
-          item.className = 'user-item';
+          item.className = 'item user-item';
           item.innerHTML = `
             <div class="user-info">
               <div class="user-name">${group.displayName || group.workspaceName || 'Unknown Group'}</div>

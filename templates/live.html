@@ -184,13 +184,20 @@
         return;
       }
 
-      if (state === 'connected') {
-        showEqualizer(true);
+      // Exit idle mode for any active call
+      if (state !== 'ended') {
+        setIdle(false);
       }
 
+      // Show caller info
       if (data.remoteNumber || data.displayName) {
         const label = data.remoteNumber || data.displayName;
         document.getElementById('liveHeader').textContent = label;
+        document.getElementById('liveSub').textContent = `State: ${state}`;
+      }
+
+      if (state === 'connected') {
+        showEqualizer(true);
       }
 
       if (data.transcript && data.transcript.trim()) {

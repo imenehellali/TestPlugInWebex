@@ -61,7 +61,25 @@ The app uses **Webex Embedded App SDK v2** exclusively. Make sure your app integ
 
 ### Compliance/Recording Scopes (for History Panel)
 9. **spark-compliance:recordings_read** - Access call recordings
-10. **spark-compliance:telephony_compliance_read** - Read call history
+10. **spark-compliance:call_histories_read** - Read call history (CDR data)
+
+## Technical Architecture
+
+### Webex SDK v2 Authentication
+**There is NO separate login/authentication panel** in this app. Authentication is handled automatically by the Webex Embedded App SDK v2:
+- When a user opens the embedded app, the SDK automatically authenticates them through Webex
+- No username/password entry needed
+- User identity is fetched via `/api/auth/me` endpoint
+- Admin vs regular user roles are detected automatically from Webex user data
+
+If you don't see a login screen, that's correct! The app starts directly on the Live panel.
+
+### Socket.IO Real-Time Communication
+**Socket.IO** is used for browser-based real-time updates in the embedded app UI. This works for ALL users - whether they're:
+- **Admin with full Webex suite** - They see all features including Authorization panel
+- **Regular users with only Webex Calling** - They see Live and History panels
+
+Socket.IO is NOT about client types - it's just the web technology that pushes live call updates to the browser UI immediately without page refresh. Every user who opens the embedded app in their browser automatically connects via Socket.IO to receive real-time notifications when calls arrive.
 
 ## Setup Instructions
 

@@ -12,8 +12,8 @@ WEBEX_BASE = "https://webexapis.com"
 WEBEX_BASE_API = "https://webexapis.com/v1"
 
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
-WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
-SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
+WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "MDFhYmEyMWUtODVmYy00MzI0LTgzNjgtNjBhMmZlNmM0ZGE0OTI5ZmE5MzktMmZh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+SIMULATOR_BASE = os.environ.get("SIM_BASE", "https://07e32cec2afb.ngrok-free.app")
 ##### ------------------------------------------------------
 
 LAST_ACTIVE_BY_NUMBER = {}  # { "+4922...": "call_id" }
