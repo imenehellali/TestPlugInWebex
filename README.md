@@ -20,7 +20,7 @@ Complete redesigned architecture for Webex embedded app with proper user role ma
    - Expandable details for each call
 
 3. **Authorization Panel** (`/authorization`)
-   - Admin-only access
+   - Available to all users (no admin restriction)
    - Manage internal users, user groups, and external users
    - Generate POST API endpoints with secure tokens
    - One-click copy to clipboard
@@ -47,21 +47,22 @@ Complete redesigned architecture for Webex embedded app with proper user role ma
 ### Embedded App SDK v2
 The app uses **Webex Embedded App SDK v2** exclusively. Make sure your app integration has the following scopes:
 
-### Required Scopes
+### Core Scopes (Required)
 1. **spark:calls_read** - Read call information
-2. **spark:calls_write** - Manage calls
+2. **spark:calls_write** - Manage calls (for pickup functionality)
 3. **spark:people_read** - Read user information
-4. **spark:telephony_read** - Read telephony configuration
-5. **spark:telephony_write** - Manage telephony settings
+4. **spark:kms** - Key management for secure communication
 
-### Admin Scopes (for Authorization Panel)
-6. **spark-admin:people_read** - List all users
-7. **spark-admin:workspaces_read** - List user groups/workspaces
-8. **spark-admin:telephony_config_read** - Read telephony configuration
+### Admin Scopes (for User/Group Management)
+5. **spark-admin:people_read** - List all users in organization
+6. **spark-admin:workspaces_read** - List user groups/workspaces
 
-### Compliance/Recording Scopes (for History Panel)
-9. **spark-compliance:recordings_read** - Access call recordings
-10. **spark-compliance:call_histories_read** - Read call history (CDR data)
+### Recording/History Scopes
+7. **spark:recordings_read** - Access call recordings
+8. **spark-compliance:recordings_read** - Compliance access to recordings
+9. **spark-compliance:recordings_write** - Write recording metadata
+
+**Note:** The scope `spark-compliance:call_histories_read` does NOT exist in Webex API. Use `spark:recordings_read` and `spark-compliance:recordings_read` instead for accessing call history and recordings.
 
 ## Technical Architecture
 

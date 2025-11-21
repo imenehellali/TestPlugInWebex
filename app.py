@@ -16,10 +16,11 @@ WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "MDFhYmEyMWUtODVmYy00MzI0LTgzNjgtN
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "https://07e32cec2afb.ngrok-free.app")
 
 # OAuth configuration for Webex Integration
-WEBEX_CLIENT_ID = os.environ.get("WEBEX_CLIENT_ID", "")
-WEBEX_CLIENT_SECRET = os.environ.get("WEBEX_CLIENT_SECRET", "")
+WEBEX_CLIENT_ID = os.environ.get("WEBEX_CLIENT_ID", "C74692c778b17a24486310efc2f08f242ed63438a40627061b8677b39b674868f")
+WEBEX_CLIENT_SECRET = os.environ.get("WEBEX_CLIENT_SECRET", "f479308b5f48da613013a307e08320856008e2fd5b49c8f83f8b8dbf240cb959")
 WEBEX_REDIRECT_URI = os.environ.get("WEBEX_REDIRECT_URI", "https://servantlike-thermochemically-maison.ngrok-free.dev/oauth/callback")
-WEBEX_SCOPES = "spark:calls_read spark-admin:people_read spark-compliance:call_histories_read"
+# Use the actual scopes from the user's integration
+WEBEX_SCOPES = "spark:calls_read spark:people_read spark-admin:people_read spark:recordings_read spark-compliance:recordings_read spark:calls_write spark:kms"
 
 # Store access tokens (in production, use a database)
 ACCESS_TOKENS = {}  # {user_id: {access_token, refresh_token, expires_at}}

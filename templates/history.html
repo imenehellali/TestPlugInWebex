@@ -46,25 +46,10 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
-        // Check if user is admin: show Authorization tab if they can access users list
-        try {
-          console.log('Checking admin access...');
-          const usersCheck = await fetch('/api/users/list');
-          console.log('Admin check response:', usersCheck.status, usersCheck.ok);
-
-          if (usersCheck.ok) {
-            const data = await usersCheck.json();
-            console.log('Users list response:', data);
-            document.getElementById('tabAuth').style.display = 'block';
-            isAdmin = true;
-            console.log('Admin access granted!');
-          } else {
-            const errorText = await usersCheck.text();
-            console.log('Admin check failed:', usersCheck.status, errorText);
-          }
-        } catch (e) {
-          console.error('Admin check error:', e);
-        }
+        // Show Authorization tab to EVERYONE (no admin check needed)
+        console.log('Showing Authorization tab to all users');
+        document.getElementById('tabAuth').style.display = 'block';
+        isAdmin = true;
       }
 
       loadHistory();
