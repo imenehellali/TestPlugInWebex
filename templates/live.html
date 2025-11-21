@@ -107,7 +107,18 @@
 
       // CORRECT SDK v2 SYNTAX: Listen to sidebar:callStateChanged
       console.log('[INIT] Registering call event listener...');
-      console.log('[INIT] Available events on SDK:', Object.keys(webexApp));
+      console.log('[INIT] Available SDK properties:', Object.keys(webexApp));
+      console.log('[INIT] SDK application states:', webexApp.application?.states);
+
+      // Log ALL events to see what's being fired
+      const originalOn = webexApp.on.bind(webexApp);
+      webexApp.on = function(event, handler) {
+        console.log(`[INIT] Registering listener for event: "${event}"`);
+        return originalOn(event, function(...args) {
+          console.log(`[EVENT] 🔔 "${event}" fired with args:`, args);
+          return handler(...args);
+        });
+      };
 
       webexApp.on('sidebar:callStateChanged', (call) => {
         console.log('[EVENT] ===== sidebar:callStateChanged FIRED =====');
@@ -115,9 +126,22 @@
         handleCallStateChange(call);
       });
 
+      // Try registering for ALL possible call-related events
+      console.log('[INIT] Trying additional event listeners...');
+      ['application:callStateChanged', 'call:stateChanged', 'calling:callStateChanged'].forEach(eventName => {
+        try {
+          webexApp.on(eventName, (data) => {
+            console.log(`[EVENT] 🔔 ${eventName} fired:`, data);
+          });
+        } catch (e) {
+          console.log(`[INIT] Could not register ${eventName}:`, e.message);
+        }
+      });
+
       console.log('[INIT] Call event listener registered successfully!');
       console.log('[INIT] ===== SDK FULLY INITIALIZED =====');
       console.log('[INIT] Make a call in Webex to test call detection');
+      console.log('[INIT] Watching for ANY events...');
     })();
 
     async function tryInitializeWithoutSDK() {
