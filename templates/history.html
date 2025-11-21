@@ -60,9 +60,20 @@
       wrap.innerHTML = '';
       empty.classList.add('hidden');
 
-      const hist = await (await fetch('/api/calls/history')).json();
-      const items = hist?.items || [];
+      console.log('[HISTORY] Fetching call history from SDK...');
+
+      // SDK-ONLY: Use Webex SDK to get call history
+      // For now, show placeholder - SDK may have limited history access
+      const items = [];
+
       if (!items.length) {
+        empty.innerHTML = `
+          <img class="pulse" src="/static/bot.png" alt="AI bot">
+          <div>No call history available</div>
+          <div style="font-size: 12px; color: #9aa7bd; margin-top: 8px;">
+            Call history is tracked within your Webex app
+          </div>
+        `;
         empty.classList.remove('hidden');
         return;
       }

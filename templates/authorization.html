@@ -119,36 +119,14 @@
   </div>
 </div>
 
-    <!-- Internal Users -->
-    <div class="group">
-      <div class="head">Internal Users</div>
-      <div id="userList">
-        <div class="item" style="text-align: center; color: #9aa7bd;">Loading users...</div>
-      </div>
-    </div>
+    <!-- SDK-ONLY MODE: Only personal endpoint generation -->
+    <!-- Admin features (listing users/groups) removed - use Integration API separately if needed -->
 
-    <!-- User Groups -->
-    <div class="group">
-      <div class="head">User Groups</div>
-      <div id="groupList">
-        <div class="item" style="text-align: center; color: #9aa7bd;">Loading groups...</div>
-      </div>
-    </div>
-
-    <!-- External Users -->
-    <div class="group">
-      <div class="head">External Users</div>
-      <div class="item">
-        <div class="form-row">
-          <label class="form-lbl">User ID / Phone Number</label>
-          <input type="text" id="extUserId" class="form-in" placeholder="+491234567890 or external_user_id">
-        </div>
-        <div class="form-row">
-          <label class="form-lbl">Display Name</label>
-          <input type="text" id="extUserName" class="form-in" placeholder="Delivery Person">
-        </div>
-        <button class="btn-gen" id="btnGenExt">Generate Endpoint</button>
-        <div class="url-display" id="extUrl"></div>
+    <div class="card" style="padding: 20px; background: rgba(104, 219, 192, 0.05); border: 1px solid rgba(104, 219, 192, 0.2);">
+      <div style="font-size: 14px; color: #9aa7bd; line-height: 1.6;">
+        <strong style="color: #68dbc0;">SDK-Only Mode</strong><br>
+        This embedded app uses only the Webex SDK. You can generate your own endpoint above.
+        To manage endpoints for other users or groups, use the Integration API separately.
       </div>
     </div>
   </div>
@@ -258,165 +236,10 @@
         }
       });
 
-      // Everyone can access Authorization page (no admin check)
-      console.log('[AUTH] Loading users and groups');
-      isAdmin = true;
-
-      loadUsers();
-      loadGroups();
+      // SDK-ONLY mode: No admin listing of users/groups
+      // User can only generate their own endpoint
+      console.log('[AUTH] SDK-only mode: User can generate their own endpoint');
     })();
-
-    async function loadUsers() {
-      const userList = document.getElementById('userList');
-
-      try {
-        console.log('[AUTH] Fetching /api/users/list...');
-        const response = await fetch('/api/users/list');
-        console.log('[AUTH] Users API response:', response.status, response.ok);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[AUTH] Users API error:', response.status, errorText);
-          throw new Error(`Failed to load users: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('[AUTH] Users data:', data);
-        const users = data.items || [];
-        console.log('[AUTH] Found', users.length, 'users');
-
-        if (users.length === 0) {
-          userList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No users found (you might not have spark-admin:people_read scope)</div>';
-          return;
-        }
-
-        userList.innerHTML = '';
-        for (const user of users) {
-          const item = document.createElement('div');
-          item.className = 'item user-row';
-          item.innerHTML = `
-            <div class="user-info">
-              <div class="user-name">${user.displayName || 'Unknown'}</div>
-              <div class="user-detail">${user.emails?.[0] || ''}</div>
-            </div>
-            <button class="btn-gen" data-id="${user.id}" data-type="user" data-name="${user.displayName || 'User'}">
-              Generate
-            </button>
-            <div class="url-display" id="url-${user.id}"></div>
-          `;
-          userList.appendChild(item);
-        }
-
-        attachGenerateListeners();
-      } catch (error) {
-        console.error('[AUTH] Error loading users:', error);
-        userList.innerHTML = `<div style="color: #e78888; text-align: center; padding: 20px;">Error: ${error.message}<br><small>Check console for details</small></div>`;
-      }
-    }
-
-    async function loadGroups() {
-      const groupList = document.getElementById('groupList');
-
-      try {
-        console.log('[AUTH] Fetching /api/groups/list...');
-        const response = await fetch('/api/groups/list');
-        console.log('[AUTH] Groups API response:', response.status, response.ok);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[AUTH] Groups API error:', response.status, errorText);
-          throw new Error(`Failed to load groups: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('[AUTH] Groups data:', data);
-        const groups = data.items || [];
-        console.log('[AUTH] Found', groups.length, 'groups');
-
-        if (groups.length === 0) {
-          groupList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No groups found (you might not have spark-admin:workspaces_read scope)</div>';
-          return;
-        }
-
-        groupList.innerHTML = '';
-        for (const group of groups) {
-          const item = document.createElement('div');
-          item.className = 'item user-row';
-          item.innerHTML = `
-            <div class="user-info">
-              <div class="user-name">${group.displayName || group.workspaceName || 'Unknown Group'}</div>
-              <div class="user-detail">Group ID: ${group.id}</div>
-            </div>
-            <button class="btn-gen" data-id="${group.id}" data-type="group" data-name="${group.displayName || group.workspaceName || 'Group'}">
-              Generate
-            </button>
-            <div class="url-display" id="url-${group.id}"></div>
-          `;
-          groupList.appendChild(item);
-        }
-
-        attachGenerateListeners();
-      } catch (error) {
-        console.error('[AUTH] Error loading groups:', error);
-        groupList.innerHTML = `<div style="color: #e78888; text-align: center; padding: 20px;">Error: ${error.message}<br><small>Check console for details</small></div>`;
-      }
-    }
-
-    function attachGenerateListeners() {
-      document.querySelectorAll('.btn-gen').forEach(btn => {
-        // Skip external and personal endpoint buttons (they have their own listeners)
-        if (btn.id !== 'btnGenExt' && btn.id !== 'btnGenMyself') {
-          btn.addEventListener('click', async (e) => {
-            const targetId = e.target.dataset.id;
-            const targetType = e.target.dataset.type;
-            const targetName = e.target.dataset.name;
-
-            await generateEndpoint(targetId, targetType, targetName, e.target);
-          });
-        }
-      });
-    }
-
-    async function generateEndpoint(targetId, targetType, targetName, button) {
-      button.disabled = true;
-      button.textContent = 'Generating...';
-
-      try {
-        const response = await fetch('/api/auth/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target_id: targetId,
-            target_type: targetType,
-            target_name: targetName
-          })
-        });
-
-        if (!response.ok) throw new Error('Failed to generate endpoint');
-
-        const data = await response.json();
-        const urlDiv = document.getElementById(`url-${targetId}`);
-        if (urlDiv) {
-          urlDiv.textContent = data.post_url;
-          urlDiv.style.display = 'block';
-        }
-
-        // Copy to clipboard
-        await navigator.clipboard.writeText(data.post_url);
-        showCopyNotification();
-
-        button.textContent = 'Generated ✓';
-        setTimeout(() => {
-          button.textContent = 'Regenerate';
-          button.disabled = false;
-        }, 2000);
-
-      } catch (error) {
-        console.error('Error generating endpoint:', error);
-        button.textContent = 'Error';
-        button.disabled = false;
-      }
-    }
 
     function showCopyNotification() {
       const toast = document.createElement('div');
@@ -426,58 +249,6 @@
 
       setTimeout(() => { toast.remove(); }, 3000);
     }
-
-    // External user generation
-    document.getElementById('btnGenExt').addEventListener('click', async () => {
-      const userId = document.getElementById('extUserId').value.trim();
-      const userName = document.getElementById('extUserName').value.trim() || 'External User';
-
-      if (!userId) {
-        const extUrl = document.getElementById('extUrl');
-        extUrl.innerHTML = '<div style="color: #e78888; padding: 12px; background: rgba(231, 136, 136, 0.1); border-radius: 6px;">⚠️ Please enter a User ID or Phone Number</div>';
-        extUrl.style.display = 'block';
-        setTimeout(() => { extUrl.style.display = 'none'; }, 4000);
-        return;
-      }
-
-      const btn = document.getElementById('btnGenExt');
-      btn.disabled = true;
-      btn.textContent = 'Generating...';
-
-      try {
-        const response = await fetch('/api/auth/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target_id: userId,
-            target_type: 'external',
-            target_name: userName
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const urlDiv = document.getElementById('extUrl');
-          urlDiv.textContent = data.post_url;
-          urlDiv.style.display = 'block';
-          await navigator.clipboard.writeText(data.post_url);
-          showCopyNotification();
-
-          btn.textContent = 'Generated ✓';
-          setTimeout(() => {
-            btn.textContent = 'Regenerate';
-            btn.disabled = false;
-          }, 2000);
-        } else {
-          btn.textContent = 'Error';
-          btn.disabled = false;
-        }
-      } catch (error) {
-        console.error('Error:', error);
-        btn.textContent = 'Error';
-        btn.disabled = false;
-      }
-    });
 
     // Copy generated URL function
     function copyGeneratedUrl() {

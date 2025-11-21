@@ -121,20 +121,10 @@
     })();
 
     async function tryInitializeWithoutSDK() {
-      // Try to get user info from backend
-      try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          currentUserInfo = await response.json();
-          currentUserId = currentUserInfo.id;
-          document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
-
-          // Initialize socket for testing
-          initSocket();
-        }
-      } catch (e) {
-        console.error('Could not initialize without SDK:', e);
-      }
+      // SDK not available - show error, no fallback
+      console.error('[INIT] Cannot run without SDK - this is an embedded app');
+      document.getElementById('liveHeader').textContent = '⚠️ SDK Required';
+      document.getElementById('liveSub').textContent = 'This app requires Webex SDK and cannot run in a regular browser';
     }
 
     function handleCallStateChange(call) {
