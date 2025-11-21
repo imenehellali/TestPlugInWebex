@@ -14,6 +14,15 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
 WEBEX_BEARER = os.environ.get("WEBEX_BEARER", "MDFhYmEyMWUtODVmYy00MzI0LTgzNjgtNjBhMmZlNmM0ZGE0OTI5ZmE5MzktMmZh_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "https://07e32cec2afb.ngrok-free.app")
+
+# OAuth configuration for Webex Integration
+WEBEX_CLIENT_ID = os.environ.get("WEBEX_CLIENT_ID", "")
+WEBEX_CLIENT_SECRET = os.environ.get("WEBEX_CLIENT_SECRET", "")
+WEBEX_REDIRECT_URI = os.environ.get("WEBEX_REDIRECT_URI", "https://servantlike-thermochemically-maison.ngrok-free.dev/oauth/callback")
+WEBEX_SCOPES = "spark:calls_read spark-admin:people_read spark-compliance:call_histories_read"
+
+# Store access tokens (in production, use a database)
+ACCESS_TOKENS = {}  # {user_id: {access_token, refresh_token, expires_at}}
 ##### ------------------------------------------------------
 
 LAST_ACTIVE_BY_NUMBER = {}  # { "+4922...": "call_id" }
@@ -98,6 +107,127 @@ def simulator():
 @app.route("/webex_bridge.html")
 def legacy_bridge():
     return redirect("/", code=302)
+
+# ========== OAUTH FLOW ==========
+
+@app.route("/oauth/start")
+def oauth_start():
+    """Initiate OAuth flow - redirect to Webex authorization"""
+    if not WEBEX_CLIENT_ID:
+        return jsonify({"error": "OAuth not configured. Set WEBEX_CLIENT_ID and WEBEX_CLIENT_SECRET environment variables."}), 500
+
+    # Generate state for CSRF protection
+    state = secrets.token_urlsafe(32)
+
+    # Build authorization URL
+    auth_url = (
+        f"{WEBEX_BASE}/v1/authorize?"
+        f"client_id={WEBEX_CLIENT_ID}&"
+        f"response_type=code&"
+        f"redirect_uri={WEBEX_REDIRECT_URI}&"
+        f"scope={WEBEX_SCOPES}&"
+        f"state={state}"
+    )
+
+    print(f"[oauth/start] Redirecting to: {auth_url}")
+    return redirect(auth_url)
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    """Handle OAuth callback from Webex"""
+    code = request.args.get("code")
+    error = request.args.get("error")
+    error_description = request.args.get("error_description")
+
+    print(f"[oauth/callback] Received - code: {code[:20] if code else None}, error: {error}")
+
+    if error:
+        return jsonify({
+            "error": error,
+            "error_description": error_description
+        }), 400
+
+    if not code:
+        return jsonify({"error": "No authorization code received"}), 400
+
+    # Exchange code for access token
+    try:
+        token_url = f"{WEBEX_BASE}/v1/access_token"
+        token_data = {
+            "grant_type": "authorization_code",
+            "client_id": WEBEX_CLIENT_ID,
+            "client_secret": WEBEX_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": WEBEX_REDIRECT_URI
+        }
+
+        print(f"[oauth/callback] Exchanging code for token...")
+        token_response = requests.post(token_url, data=token_data, timeout=10)
+
+        if not token_response.ok:
+            print(f"[oauth/callback] Token exchange failed: {token_response.status_code} - {token_response.text}")
+            return jsonify({
+                "error": "Token exchange failed",
+                "details": token_response.text
+            }), 500
+
+        token_json = token_response.json()
+        access_token = token_json.get("access_token")
+        refresh_token = token_json.get("refresh_token")
+        expires_in = token_json.get("expires_in", 3600)
+
+        print(f"[oauth/callback] Token received! Expires in {expires_in}s")
+
+        # Get user info
+        user_response = requests.get(
+            f"{WEBEX_BASE_API}/people/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10
+        )
+
+        if user_response.ok:
+            user_info = user_response.json()
+            user_id = user_info.get("id")
+
+            # Store token
+            ACCESS_TOKENS[user_id] = {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": datetime.utcnow().timestamp() + expires_in,
+                "user_info": user_info
+            }
+
+            # Update global bearer token to use this one
+            global WEBEX_BEARER
+            WEBEX_BEARER = access_token
+
+            print(f"[oauth/callback] Stored token for user: {user_info.get('displayName')} ({user_id})")
+
+            return f"""
+            <html>
+            <head><title>Authorization Successful</title></head>
+            <body style="font-family: system-ui; max-width: 600px; margin: 100px auto; text-align: center;">
+                <h1 style="color: #18e299;">✓ Authorization Successful!</h1>
+                <p>You have successfully authorized the app.</p>
+                <p><strong>User:</strong> {user_info.get('displayName')}</p>
+                <p><strong>Email:</strong> {user_info.get('emails', [''])[0]}</p>
+                <p style="margin-top: 40px;">
+                    <a href="/live" style="padding: 12px 24px; background: #18e299; color: #0b1020; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                        Go to App
+                    </a>
+                </p>
+            </body>
+            </html>
+            """
+        else:
+            print(f"[oauth/callback] Failed to get user info: {user_response.status_code}")
+            return jsonify({"error": "Failed to get user info"}), 500
+
+    except Exception as e:
+        print(f"[oauth/callback] Exception: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# ========== END OAUTH FLOW ==========
 
 # ========== AUTHORIZATION & USER MANAGEMENT ==========
 
