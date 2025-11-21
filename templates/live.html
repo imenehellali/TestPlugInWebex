@@ -70,9 +70,16 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
-        isAdmin = currentUserInfo.roles?.includes('Full_Admin') || currentUserInfo.roles?.includes('User_Admin');
-        if (isAdmin) {
-          document.getElementById('tabAuth').style.display = 'block';
+        // Check if user is admin: show Authorization tab if they can access users list
+        // This works for account owners, not just Full_Admin/User_Admin roles
+        try {
+          const usersCheck = await fetch('/api/users/list');
+          if (usersCheck.ok) {
+            document.getElementById('tabAuth').style.display = 'block';
+            isAdmin = true;
+          }
+        } catch (e) {
+          // Not admin, that's fine
         }
 
         initSocket();
@@ -179,30 +186,55 @@
       console.log('Call event:', data);
       const state = (data.state || '').toLowerCase();
 
+      // Handle call end
       if (state === 'ended' || state === 'completed' || state === 'hangup') {
         resetLiveView();
         return;
       }
 
-      // Exit idle mode for any active call
-      if (state !== 'ended') {
-        setIdle(false);
-      }
+      // For ANY active call, exit idle mode and show caller info
+      setIdle(false);
 
-      // Show caller info
-      if (data.remoteNumber || data.displayName) {
-        const label = data.remoteNumber || data.displayName;
+      // Always show caller info if available
+      if (data.remoteNumber || data.displayName || data.caller) {
+        const label = data.remoteNumber || data.displayName || data.caller || 'Unknown';
         document.getElementById('liveHeader').textContent = label;
         document.getElementById('liveSub').textContent = `State: ${state}`;
       }
 
+      // Show equalizer when connected
       if (state === 'connected') {
         showEqualizer(true);
+
+        // If no AI summary was received, show placeholder
+        if (!currentCall || !currentCall.call_data) {
+          showNoSummaryPlaceholder();
+        }
       }
 
+      // Add transcript lines if available
       if (data.transcript && data.transcript.trim()) {
         addConcernLines(data.transcript);
       }
+    }
+
+    function showNoSummaryPlaceholder() {
+      const liveTx = document.getElementById('liveTx');
+      liveTx.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px 20px;color:#9aa7bd;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            <line x1="9" y1="10" x2="15" y2="10"></line>
+            <line x1="12" y1="7" x2="12" y2="13"></line>
+          </svg>
+          <div style="text-align:center;">
+            <div style="font-weight:600;color:#e6eefb;margin-bottom:4px;">No AI-Summary Forwarded</div>
+            <div style="font-size:13px;">This call was not forwarded from an AI assistant.</div>
+          </div>
+        </div>
+      `;
+      liveTx.classList.remove('hidden');
+      document.getElementById('liveIdle').classList.add('hidden');
     }
 
     function displayCallSummary(callData) {

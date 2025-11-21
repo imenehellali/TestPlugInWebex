@@ -2,14 +2,17 @@
 # Simple API for storing and retrieving call transcripts during testing
 # Run with: python simulator_api.py (will run on port 7000)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, send_from_directory
 import os, pathlib
 from datetime import datetime
 
 DATA_DIR = pathlib.Path("sim_data")
 DATA_DIR.mkdir(exist_ok=True)
 
-app = Flask(__name__)
+# Initialize Flask with template and static folders
+app = Flask(__name__,
+            template_folder='templates',
+            static_folder='static')
 
 # In-memory storage for transcripts
 TRANSCRIPTS = {}  # {phone_number: [{timestamp, text, name}]}
@@ -78,10 +81,18 @@ def delete_number(number):
 
 @app.get("/")
 def index():
+    """Serve the simulator HTML interface"""
+    return render_template('simulator.html')
+
+@app.get("/api/info")
+def api_info():
+    """API information endpoint (moved from root)"""
     return jsonify({
         "name": "Simulator API",
         "version": "1.0",
         "endpoints": {
+            "GET /": "Simulator HTML interface",
+            "GET /api/info": "This API information",
             "POST /transcripts": "Add a transcript",
             "GET /transcripts/<number>/latest": "Get latest transcript",
             "GET /transcripts/<number>/all": "Get all transcripts",

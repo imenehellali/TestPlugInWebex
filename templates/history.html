@@ -46,9 +46,15 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
-        isAdmin = currentUserInfo.roles?.includes('Full_Admin') || currentUserInfo.roles?.includes('User_Admin');
-        if (isAdmin) {
-          document.getElementById('tabAuth').style.display = 'block';
+        // Check if user is admin: show Authorization tab if they can access users list
+        try {
+          const usersCheck = await fetch('/api/users/list');
+          if (usersCheck.ok) {
+            document.getElementById('tabAuth').style.display = 'block';
+            isAdmin = true;
+          }
+        } catch (e) {
+          // Not admin, that's fine
         }
       }
 

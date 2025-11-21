@@ -6,17 +6,17 @@
   <script src="https://unpkg.com/@webex/embedded-app-sdk@2"></script>
   <link rel="stylesheet" href="/static/app.css">
   <style>
-    .auth-title { color: #68dbc0; font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-    .auth-desc { color: #9aa7bd; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
-    .user-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
+    /* Match card title/description to use same fonts as rest of app */
+    .auth-title { color: #68dbc0; font-weight: 600; margin-bottom: 6px; }
+    .auth-desc { color: #9aa7bd; font-size: 14px; margin-bottom: 16px; line-height: 1.5; }
+
+    /* User row layout */
+    .user-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .user-info { flex: 1; min-width: 0; }
-    .user-name { font-weight: 600; color: #e6eefb; font-size: 14px; }
+    .user-name { font-weight: 600; color: #e6eefb; }
     .user-detail { font-size: 12px; color: #9aa7bd; margin-top: 2px; }
+
+    /* Beautiful gradient button (keep as is!) */
     .btn-gen {
       padding: 8px 16px;
       background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%, #7b8cff 100%);
@@ -25,16 +25,17 @@
       border-radius: 6px;
       font-weight: 600;
       cursor: pointer;
-      font-size: 13px;
       white-space: nowrap;
       box-shadow: 0 2px 8px rgba(24,226,153,0.2);
       transition: all 0.2s;
     }
     .btn-gen:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(24,226,153,0.3); }
     .btn-gen:disabled { background: #1f334d; color: #9aa7bd; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* URL display */
     .url-display {
       margin-top: 8px;
-      padding: 10px;
+      padding: 8px;
       background: rgba(24,226,153,0.08);
       border: 1px solid rgba(24,226,153,0.25);
       border-radius: 6px;
@@ -44,16 +45,17 @@
       font-family: 'Courier New', monospace;
       display: none;
     }
+
+    /* Copy notification toast */
     .copy-toast {
       position: fixed;
       top: 24px;
       right: 24px;
       background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%);
       color: #0b1020;
-      padding: 14px 24px;
+      padding: 12px 20px;
       border-radius: 8px;
       font-weight: 600;
-      font-size: 14px;
       box-shadow: 0 8px 24px rgba(24,226,153,0.4);
       z-index: 9999;
       animation: slideIn 0.3s ease-out;
@@ -62,18 +64,19 @@
       from { transform: translateX(120%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
     }
-    .ext-form { background: #0b1020; padding: 16px; border-radius: 8px; margin-top: 12px; }
+
+    /* External user form - no extra background */
     .form-row { margin-bottom: 12px; }
     .form-lbl {
       display: block;
       font-weight: 600;
       color: #e6eefb;
       margin-bottom: 6px;
-      font-size: 13px;
+      font-size: 14px;
     }
     .form-in {
       width: 100%;
-      padding: 10px 12px;
+      padding: 10px;
       background: #132032;
       border: 1px solid #1f334d;
       border-radius: 6px;
@@ -122,7 +125,7 @@
     <!-- External Users -->
     <div class="group">
       <div class="head">External Users</div>
-      <div class="item ext-form">
+      <div class="item">
         <div class="form-row">
           <label class="form-lbl">User ID / Phone Number</label>
           <input type="text" id="extUserId" class="form-in" placeholder="+491234567890 or external_user_id">
@@ -159,12 +162,19 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
-        isAdmin = currentUserInfo.roles?.includes('Full_Admin') || currentUserInfo.roles?.includes('User_Admin');
-        
+        // Check if user can access admin endpoints
+        try {
+          const usersCheck = await fetch('/api/users/list');
+          if (usersCheck.ok) {
+            isAdmin = true;
+          }
+        } catch (e) {
+          // Not admin
+        }
+
         if (!isAdmin) {
-          alert('You do not have admin permissions to access this page.');
-          window.location.href = '/live';
-          return;
+          alert('You do not have admin permissions. Cannot access users/groups lists.');
+          // Still show the page, they can try external users
         }
 
         loadUsers();
