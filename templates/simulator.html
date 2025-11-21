@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Placetel AI – Call Simulator</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    .form-section {
+      margin-bottom: 24px;
+    }
+    .form-header {
+      font-size: 18px;
+      font-weight: 600;
+      color: #68dbc0;
+      margin-bottom: 12px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-weight: 600;
+      color: #e6eefb;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 12px;
+      background: #0b1020;
+      border: 1px solid #1f334d;
+      border-radius: 6px;
+      color: #e6eefb;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #18e299;
+    }
+    .form-textarea {
+      min-height: 100px;
+      resize: vertical;
+      font-family: system-ui, Arial, sans-serif;
+    }
+    .btn-primary {
+      padding: 12px 24px;
+      background: #18e299;
+      color: #0b1020;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    .btn-primary:hover {
+      background: #20f0a5;
+    }
+    .btn-primary:disabled {
+      background: #1f334d;
+      color: #9aa7bd;
+      cursor: not-allowed;
+    }
+    .result-box {
+      margin-top: 16px;
+      padding: 16px;
+      background: #0b1020;
+      border-radius: 8px;
+      border-left: 4px solid #18e299;
+      display: none;
+    }
+    .result-success {
+      border-left-color: #18e299;
+    }
+    .result-error {
+      border-left-color: #e78888;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #9aa7bd;
+      margin-top: 4px;
+    }
+    .sample-data {
+      background: #0b1020;
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #cfe4ff;
+      border: 1px solid #1f334d;
+    }
+  </style>
+</head>
+
+<body class="page">
+  <div class="topbar">
+    <button id="backBtn" class="tab">← Back to App</button>
+    <span style="margin-left: auto; font-size: 14px; color: #68dbc0; font-weight: 600;">Call Simulator</span>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2 style="margin-top: 0; color: #68dbc0;">AI Call Summary Simulator</h2>
+      <p style="color: #9aa7bd; margin-bottom: 24px;">
+        Simulate an AI call being forwarded to a human agent. Enter the POST API endpoint generated from the Authorization page.
+      </p>
+
+      <!-- API Configuration -->
+      <div class="form-section">
+        <div class="form-header">API Configuration</div>
+        
+        <div class="form-group">
+          <label class="form-label">POST API Endpoint URL</label>
+          <input type="text" id="apiEndpoint" class="form-input" placeholder="https://your-ngrok-url/api/forward/TOKEN">
+          <div class="help-text">Paste the URL generated from the Authorization page</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Authorization Bearer Token (Optional)</label>
+          <input type="text" id="authBearer" class="form-input" placeholder="your-bearer-token">
+          <div class="help-text">If your endpoint requires additional authorization, enter it here</div>
+        </div>
+      </div>
+
+      <!-- Call Data -->
+      <div class="form-section">
+        <div class="form-header">Call Information</div>
+        
+        <div class="form-group">
+          <label class="form-label">Caller Phone Number</label>
+          <input type="text" id="callerNumber" class="form-input" value="+4922197580971" placeholder="+491234567890">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Agent Name</label>
+          <input type="text" id="agentName" class="form-input" value="AI Assistant" placeholder="AI Assistant">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Customer Name</label>
+          <input type="text" id="customerName" class="form-input" value="Max Mustermann" placeholder="Customer Name">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Customer Email</label>
+          <input type="text" id="customerEmail" class="form-input" value="max@example.com" placeholder="customer@example.com">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Concerns / Anliegen (one per line)</label>
+          <textarea id="concerns" class="form-input form-textarea" placeholder="Enter customer concerns, one per line">Frage zu Bestellung #1234
+Liefertermin klären
+Rechnungskopie anfordern</textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tasks (one per line)</label>
+          <textarea id="tasks" class="form-input form-textarea" placeholder="Enter tasks, one per line">Bestellstatus prüfen
+Liefertermin bestätigen
+Rechnung per Email senden</textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Summary Text (Optional)</label>
+          <textarea id="summary" class="form-input form-textarea" placeholder="Full summary text">Kunde ruft an bezüglich Bestellung #1234. Möchte Liefertermin klären und Rechnungskopie erhalten.</textarea>
+        </div>
+      </div>
+
+      <!-- Submit Button -->
+      <button id="btnSendCall" class="btn-primary">Send AI Call Summary</button>
+
+      <!-- Result Display -->
+      <div id="resultBox" class="result-box">
+        <div id="resultMessage"></div>
+      </div>
+
+      <!-- Sample Data Info -->
+      <div style="margin-top: 32px;">
+        <div class="form-header">Sample JSON Payload</div>
+        <div class="sample-data">
+          <pre id="samplePayload" style="margin: 0; white-space: pre-wrap; font-size: 11px;"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Update sample payload when fields change
+    function updateSamplePayload() {
+      const concerns = document.getElementById('concerns').value.split('\n').filter(l => l.trim());
+      const tasks = document.getElementById('tasks').value.split('\n').filter(l => l.trim());
+
+      const payload = {
+        caller: document.getElementById('callerNumber').value,
+        agent_name: document.getElementById('agentName').value,
+        customer_name: document.getElementById('customerName').value,
+        customer_number: document.getElementById('callerNumber').value,
+        customer_email: document.getElementById('customerEmail').value,
+        concerns: concerns,
+        tasks: tasks,
+        summary: document.getElementById('summary').value
+      };
+
+      document.getElementById('samplePayload').textContent = JSON.stringify(payload, null, 2);
+    }
+
+    // Add event listeners to update sample payload
+    ['callerNumber', 'agentName', 'customerName', 'customerEmail', 'concerns', 'tasks', 'summary'].forEach(id => {
+      document.getElementById(id).addEventListener('input', updateSamplePayload);
+    });
+
+    // Initialize sample payload
+    updateSamplePayload();
+
+    // Send call
+    document.getElementById('btnSendCall').addEventListener('click', async () => {
+      const endpoint = document.getElementById('apiEndpoint').value.trim();
+      
+      if (!endpoint) {
+        showResult('Please enter a POST API endpoint URL', false);
+        return;
+      }
+
+      const btn = document.getElementById('btnSendCall');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+
+      const concerns = document.getElementById('concerns').value.split('\n').filter(l => l.trim());
+      const tasks = document.getElementById('tasks').value.split('\n').filter(l => l.trim());
+
+      const payload = {
+        caller: document.getElementById('callerNumber').value,
+        agent_name: document.getElementById('agentName').value,
+        customer_name: document.getElementById('customerName').value,
+        customer_number: document.getElementById('callerNumber').value,
+        customer_email: document.getElementById('customerEmail').value,
+        concerns: concerns,
+        tasks: tasks,
+        summary: document.getElementById('summary').value
+      };
+
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      const authBearer = document.getElementById('authBearer').value.trim();
+      if (authBearer) {
+        headers['Authorization'] = `Bearer ${authBearer}`;
+      }
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          showResult(`✓ Call sent successfully! Call ID: ${result.call_id || 'N/A'}`, true);
+        } else {
+          const error = await response.text();
+          showResult(`✗ Error: ${response.status} - ${error}`, false);
+        }
+      } catch (error) {
+        showResult(`✗ Network Error: ${error.message}`, false);
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Send AI Call Summary';
+    });
+
+    function showResult(message, success) {
+      const resultBox = document.getElementById('resultBox');
+      const resultMessage = document.getElementById('resultMessage');
+      
+      resultMessage.textContent = message;
+      resultBox.className = `result-box ${success ? 'result-success' : 'result-error'}`;
+      resultBox.style.display = 'block';
+
+      setTimeout(() => {
+        resultBox.style.display = 'none';
+      }, 10000);
+    }
+
+    // Back button
+    document.getElementById('backBtn').addEventListener('click', () => {
+      window.location.href = '/live';
+    });
+  </script>
+</body>
+</html>

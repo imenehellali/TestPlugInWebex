@@ -1,0 +1,397 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Placetel AI – Authorization</title>
+  <script src="https://unpkg.com/@webex/embedded-app-sdk@2"></script>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    .auth-section {
+      margin-bottom: 24px;
+    }
+    .auth-header {
+      font-size: 18px;
+      font-weight: 600;
+      color: #68dbc0;
+      margin-bottom: 12px;
+    }
+    .user-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .user-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0b1020;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .user-info {
+      flex: 1;
+    }
+    .user-name {
+      font-weight: 600;
+      color: #e6eefb;
+    }
+    .user-detail {
+      font-size: 12px;
+      color: #9aa7bd;
+      margin-top: 4px;
+    }
+    .btn-generate {
+      padding: 8px 16px;
+      background: #18e299;
+      color: #0b1020;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-generate:hover {
+      background: #20f0a5;
+    }
+    .btn-generate:disabled {
+      background: #1f334d;
+      color: #9aa7bd;
+      cursor: not-allowed;
+    }
+    .generated-url {
+      margin-top: 8px;
+      padding: 8px;
+      background: #132032;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #68dbc0;
+      word-break: break-all;
+      display: none;
+    }
+    .copy-notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #18e299;
+      color: #0b1020;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 1000;
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    .external-form {
+      background: #0b1020;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 12px;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    .form-label {
+      display: block;
+      font-weight: 600;
+      color: #e6eefb;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px;
+      background: #132032;
+      border: 1px solid #1f334d;
+      border-radius: 6px;
+      color: #e6eefb;
+      font-size: 14px;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #18e299;
+    }
+  </style>
+</head>
+
+<body class="page">
+  <div class="topbar">
+    <button id="tabLive" class="tab">Live</button>
+    <button id="tabHist" class="tab">History</button>
+    <button id="tabAuth" class="tab tab--active">Authorization</button>
+    <span id="userInfo" style="margin-left: auto; font-size: 12px; color: #9aa7bd;"></span>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2 style="margin-top: 0; color: #68dbc0;">Authorization Management</h2>
+      <p style="color: #9aa7bd; margin-bottom: 24px;">Generate POST API endpoints for users and groups to receive AI call summaries.</p>
+
+      <!-- Internal Users -->
+      <div class="auth-section">
+        <div class="auth-header">Internal Users</div>
+        <div class="user-list" id="userList">
+          <div style="color: #9aa7bd; text-align: center; padding: 20px;">Loading users...</div>
+        </div>
+      </div>
+
+      <!-- User Groups -->
+      <div class="auth-section">
+        <div class="auth-header">User Groups</div>
+        <div class="user-list" id="groupList">
+          <div style="color: #9aa7bd; text-align: center; padding: 20px;">Loading groups...</div>
+        </div>
+      </div>
+
+      <!-- External Users -->
+      <div class="auth-section">
+        <div class="auth-header">External Users</div>
+        <div class="external-form">
+          <div class="form-group">
+            <label class="form-label">User ID / Phone Number</label>
+            <input type="text" id="extUserId" class="form-input" placeholder="+491234567890 or external_user_id">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Display Name</label>
+            <input type="text" id="extUserName" class="form-input" placeholder="Delivery Person">
+          </div>
+          <button class="btn-generate" id="btnGenerateExternal">Generate External User Endpoint</button>
+          <div class="generated-url" id="extGeneratedUrl"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let webexApp = null;
+    let currentUserId = null;
+    let currentUserInfo = null;
+    let isAdmin = false;
+
+    (async function initWebex() {
+      if (!window.Webex || !window.Webex.Application) {
+        console.error('Webex SDK v2 not loaded');
+        return;
+      }
+
+      webexApp = new window.Webex.Application();
+      await webexApp.onReady();
+      await webexApp.listen();
+
+      const response = await fetch('/api/auth/me');
+      if (response.ok) {
+        currentUserInfo = await response.json();
+        currentUserId = currentUserInfo.id;
+        document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+
+        isAdmin = currentUserInfo.roles?.includes('Full_Admin') || currentUserInfo.roles?.includes('User_Admin');
+        
+        if (!isAdmin) {
+          alert('You do not have admin permissions to access this page.');
+          window.location.href = '/live';
+          return;
+        }
+
+        loadUsers();
+        loadGroups();
+      }
+    })();
+
+    async function loadUsers() {
+      const userList = document.getElementById('userList');
+      
+      try {
+        const response = await fetch('/api/users/list');
+        if (!response.ok) throw new Error('Failed to load users');
+        
+        const data = await response.json();
+        const users = data.items || [];
+        
+        if (users.length === 0) {
+          userList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No users found</div>';
+          return;
+        }
+
+        userList.innerHTML = '';
+        for (const user of users) {
+          const item = document.createElement('div');
+          item.className = 'user-item';
+          item.innerHTML = `
+            <div class="user-info">
+              <div class="user-name">${user.displayName || 'Unknown'}</div>
+              <div class="user-detail">${user.emails?.[0] || ''}</div>
+            </div>
+            <button class="btn-generate" data-id="${user.id}" data-type="user" data-name="${user.displayName || 'User'}">
+              Generate
+            </button>
+            <div class="generated-url" id="url-${user.id}"></div>
+          `;
+          userList.appendChild(item);
+        }
+
+        attachGenerateListeners();
+      } catch (error) {
+        console.error('Error loading users:', error);
+        userList.innerHTML = '<div style="color: #e78888; text-align: center; padding: 20px;">Error loading users</div>';
+      }
+    }
+
+    async function loadGroups() {
+      const groupList = document.getElementById('groupList');
+      
+      try {
+        const response = await fetch('/api/groups/list');
+        if (!response.ok) throw new Error('Failed to load groups');
+        
+        const data = await response.json();
+        const groups = data.items || [];
+        
+        if (groups.length === 0) {
+          groupList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No groups found</div>';
+          return;
+        }
+
+        groupList.innerHTML = '';
+        for (const group of groups) {
+          const item = document.createElement('div');
+          item.className = 'user-item';
+          item.innerHTML = `
+            <div class="user-info">
+              <div class="user-name">${group.displayName || group.workspaceName || 'Unknown Group'}</div>
+              <div class="user-detail">Group ID: ${group.id}</div>
+            </div>
+            <button class="btn-generate" data-id="${group.id}" data-type="group" data-name="${group.displayName || group.workspaceName || 'Group'}">
+              Generate
+            </button>
+            <div class="generated-url" id="url-${group.id}"></div>
+          `;
+          groupList.appendChild(item);
+        }
+
+        attachGenerateListeners();
+      } catch (error) {
+        console.error('Error loading groups:', error);
+        groupList.innerHTML = '<div style="color: #e78888; text-align: center; padding: 20px;">Error loading groups</div>';
+      }
+    }
+
+    function attachGenerateListeners() {
+      document.querySelectorAll('.btn-generate').forEach(btn => {
+        if (btn.id !== 'btnGenerateExternal') {
+          btn.addEventListener('click', async (e) => {
+            const targetId = e.target.dataset.id;
+            const targetType = e.target.dataset.type;
+            const targetName = e.target.dataset.name;
+            
+            await generateEndpoint(targetId, targetType, targetName, e.target);
+          });
+        }
+      });
+    }
+
+    async function generateEndpoint(targetId, targetType, targetName, button) {
+      button.disabled = true;
+      button.textContent = 'Generating...';
+
+      try {
+        const response = await fetch('/api/auth/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target_id: targetId,
+            target_type: targetType,
+            target_name: targetName
+          })
+        });
+
+        if (!response.ok) throw new Error('Failed to generate endpoint');
+
+        const data = await response.json();
+        const urlDiv = document.getElementById(`url-${targetId}`);
+        if (urlDiv) {
+          urlDiv.textContent = data.post_url;
+          urlDiv.style.display = 'block';
+        }
+
+        // Copy to clipboard
+        await navigator.clipboard.writeText(data.post_url);
+        showCopyNotification();
+
+        button.textContent = 'Generated ✓';
+        setTimeout(() => {
+          button.textContent = 'Regenerate';
+          button.disabled = false;
+        }, 2000);
+
+      } catch (error) {
+        console.error('Error generating endpoint:', error);
+        button.textContent = 'Error';
+        button.disabled = false;
+      }
+    }
+
+    function showCopyNotification() {
+      const notification = document.createElement('div');
+      notification.className = 'copy-notification';
+      notification.textContent = 'URL copied to clipboard!';
+      document.body.appendChild(notification);
+
+      setTimeout(() => {
+        notification.remove();
+      }, 3000);
+    }
+
+    // External user generation
+    document.getElementById('btnGenerateExternal').addEventListener('click', async () => {
+      const userId = document.getElementById('extUserId').value.trim();
+      const userName = document.getElementById('extUserName').value.trim() || 'External User';
+
+      if (!userId) {
+        alert('Please enter a User ID or Phone Number');
+        return;
+      }
+
+      await generateEndpoint(userId, 'external', userName, document.getElementById('btnGenerateExternal'));
+      
+      const urlDiv = document.getElementById('extGeneratedUrl');
+      const response = await fetch('/api/auth/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_id: userId,
+          target_type: 'external',
+          target_name: userName
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        urlDiv.textContent = data.post_url;
+        urlDiv.style.display = 'block';
+        await navigator.clipboard.writeText(data.post_url);
+        showCopyNotification();
+      }
+    });
+
+    // Navigation
+    document.getElementById('tabLive').addEventListener('click', () => {
+      window.location.href = '/live';
+    });
+
+    document.getElementById('tabHist').addEventListener('click', () => {
+      window.location.href = '/history';
+    });
+
+    document.getElementById('tabAuth').addEventListener('click', () => {});
+  </script>
+</body>
+</html>

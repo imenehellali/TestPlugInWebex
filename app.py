@@ -1,5 +1,5 @@
-# app.py — SPA with Live/History tabs, Socket.IO, and local saving on call end
-import pathlib, json
+# app.py — Redesigned Webex Embedded App with proper architecture
+import pathlib, json, secrets
 from werkzeug.utils import secure_filename
 from transcribe import transcribe_file
 from summarize import summarize_text
@@ -17,7 +17,6 @@ SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim
 ##### ------------------------------------------------------
 
 LAST_ACTIVE_BY_NUMBER = {}  # { "+4922...": "call_id" }
-BASE_DIR = "/Users/imenhellali/Desktop/TestPlugInWebex"  # explicit, as you asked
 DATA_DIR = pathlib.Path("data")
 REC_DIR = DATA_DIR / "recordings"
 pathlib.Path(REC_DIR).mkdir(parents=True, exist_ok=True)
@@ -26,11 +25,43 @@ AUDIO_DIR = DATA_DIR /"audio"
 pathlib.Path(TRANS_DIR).mkdir(parents=True, exist_ok=True)
 pathlib.Path(AUDIO_DIR).mkdir(parents=True, exist_ok=True)
 
+# Authorization and user management
+AUTH_DIR = DATA_DIR / "auth"
+pathlib.Path(AUTH_DIR).mkdir(parents=True, exist_ok=True)
+AUTH_TOKENS = {}  # {token: {target_id, target_type, target_name, created}}
+PENDING_CALLS = {}  # {target_id: [{call_id, caller, summary, timestamp}]}
+ACTIVE_CALLS = {}  # {call_id: {assigned_to, target_id, target_type}}
+
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # in-memory store; persisted on call end
 CALL_LOGS = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
+
+# Socket.IO event handlers
+@socketio.on('connect')
+def handle_connect():
+    print(f'Client connected: {request.sid}')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f'Client disconnected: {request.sid}')
+
+@socketio.on('join')
+def handle_join(data):
+    user_id = data.get('user_id')
+    if user_id:
+        from flask_socketio import join_room
+        join_room(user_id)
+        print(f'User {user_id} joined room')
+
+@socketio.on('leave')
+def handle_leave(data):
+    user_id = data.get('user_id')
+    if user_id:
+        from flask_socketio import leave_room
+        leave_room(user_id)
+        print(f'User {user_id} left room')
 
 @app.after_request
 def set_headers(resp):
@@ -41,11 +72,241 @@ def set_headers(resp):
 
 @app.route("/")
 def index():
-    return render_template("index.html")  # single-page app with Live/History tabs
+    return render_template("live.html")
+
+@app.route("/live")
+def live():
+    return render_template("live.html")
+
+@app.route("/history")
+def history():
+    return render_template("history.html")
+
+@app.route("/authorization")
+def authorization():
+    return render_template("authorization.html")
+
+@app.route("/simulator")
+def simulator():
+    return render_template("simulator.html")
 
 @app.route("/webex_bridge.html")
 def legacy_bridge():
     return redirect("/", code=302)
+
+# ========== AUTHORIZATION & USER MANAGEMENT ==========
+
+@app.route("/api/auth/me")
+def auth_me():
+    """Get current user info from Webex"""
+    bearer = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not bearer:
+        bearer = _bearer()
+    try:
+        r = requests.get(f"{WEBEX_BASE_API}/people/me",
+                        headers={"Authorization": f"Bearer {bearer}"},
+                        timeout=10)
+        if r.ok:
+            return jsonify(r.json())
+        return jsonify({"error": "unauthorized"}), 401
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/users/list")
+def list_users():
+    """List all users (requires admin scope)"""
+    try:
+        r = requests.get(f"{WEBEX_BASE_API}/people",
+                        headers={"Authorization": f"Bearer {_bearer()}"},
+                        params={"max": 100},
+                        timeout=10)
+        return (r.text, r.status_code, {"Content-Type": "application/json"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/groups/list")
+def list_groups():
+    """List all workspaces/user groups (requires admin scope)"""
+    try:
+        # Note: Webex uses "workspaces" for user groups
+        r = requests.get(f"{WEBEX_BASE_API}/workspaces",
+                        headers={"Authorization": f"Bearer {_bearer()}"},
+                        params={"max": 100},
+                        timeout=10)
+        return (r.text, r.status_code, {"Content-Type": "application/json"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/auth/generate", methods=["POST"])
+def generate_auth_token():
+    """
+    Generate a POST API endpoint for a user/group.
+    Body: {target_id, target_type: 'user'|'group'|'external', target_name}
+    Returns: {token, post_url}
+    """
+    data = request.get_json(force=True)
+    target_id = data.get("target_id")
+    target_type = data.get("target_type")  # user, group, external
+    target_name = data.get("target_name", "")
+
+    if not target_id or not target_type:
+        return jsonify({"error": "target_id and target_type required"}), 400
+
+    token = secrets.token_urlsafe(32)
+    AUTH_TOKENS[token] = {
+        "target_id": target_id,
+        "target_type": target_type,
+        "target_name": target_name,
+        "created": datetime.utcnow().isoformat() + "Z"
+    }
+
+    # Save to disk
+    auth_file = AUTH_DIR / f"{target_id}.json"
+    with open(auth_file, "w") as f:
+        json.dump(AUTH_TOKENS[token], f, indent=2)
+
+    # Generate POST URL
+    base_url = request.host_url.rstrip("/")
+    post_url = f"{base_url}/api/forward/{token}"
+
+    return jsonify({
+        "token": token,
+        "post_url": post_url,
+        "target_id": target_id,
+        "target_type": target_type,
+        "target_name": target_name
+    })
+
+@app.route("/api/forward/<token>", methods=["POST"])
+def forward_call(token):
+    """
+    Receive AI call summary and forward to appropriate user/group.
+    Body: {caller, summary, agent_name, customer_name, customer_number, customer_email, concerns, tasks}
+    """
+    if token not in AUTH_TOKENS:
+        return jsonify({"error": "invalid token"}), 401
+
+    auth_info = AUTH_TOKENS[token]
+    target_id = auth_info["target_id"]
+    target_type = auth_info["target_type"]
+
+    data = request.get_json(force=True)
+    caller = data.get("caller", "")
+    summary = data.get("summary", "")
+
+    # Extract structured data
+    call_data = {
+        "agent_name": data.get("agent_name", "AI Assistant"),
+        "customer_name": data.get("customer_name", "—"),
+        "customer_number": data.get("customer_number", caller or "—"),
+        "customer_email": data.get("customer_email", "—"),
+        "concerns": data.get("concerns", []),
+        "tasks": data.get("tasks", [])
+    }
+
+    call_id = str(uuid.uuid4())
+
+    # Store in pending calls
+    if target_id not in PENDING_CALLS:
+        PENDING_CALLS[target_id] = []
+
+    PENDING_CALLS[target_id].append({
+        "call_id": call_id,
+        "caller": caller,
+        "summary": summary,
+        "call_data": call_data,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "target_type": target_type
+    })
+
+    # Emit socket event based on target type
+    if target_type == "user" or target_type == "external":
+        # Single user - immediately show full summary
+        socketio.emit("incoming_call", {
+            "call_id": call_id,
+            "caller": caller,
+            "target_id": target_id,
+            "target_type": target_type,
+            "show_summary": True,
+            "call_data": call_data,
+            "summary": summary
+        }, room=target_id)
+    elif target_type == "group":
+        # User group - show caller number only, wait for pickup
+        socketio.emit("incoming_call", {
+            "call_id": call_id,
+            "caller": caller,
+            "target_id": target_id,
+            "target_type": target_type,
+            "show_summary": False,
+            "call_data": None,
+            "summary": None
+        }, room=target_id)
+
+    return jsonify({"ok": True, "call_id": call_id})
+
+@app.route("/api/call/pickup", methods=["POST"])
+def pickup_call():
+    """
+    User picks up a call from their queue.
+    Body: {call_id, user_id}
+    """
+    data = request.get_json(force=True)
+    call_id = data.get("call_id")
+    user_id = data.get("user_id")
+
+    if not call_id or not user_id:
+        return jsonify({"error": "call_id and user_id required"}), 400
+
+    # Find the call in pending calls
+    call_info = None
+    target_id = None
+    for tid, calls in PENDING_CALLS.items():
+        for c in calls:
+            if c["call_id"] == call_id:
+                call_info = c
+                target_id = tid
+                break
+        if call_info:
+            break
+
+    if not call_info:
+        return jsonify({"error": "call not found"}), 404
+
+    # Assign call to this user
+    ACTIVE_CALLS[call_id] = {
+        "assigned_to": user_id,
+        "target_id": target_id,
+        "target_type": call_info["target_type"]
+    }
+
+    # Remove from pending
+    PENDING_CALLS[target_id] = [c for c in PENDING_CALLS[target_id] if c["call_id"] != call_id]
+
+    # Emit to user who picked up
+    socketio.emit("call_assigned", {
+        "call_id": call_id,
+        "caller": call_info["caller"],
+        "show_summary": True,
+        "call_data": call_info["call_data"],
+        "summary": call_info["summary"]
+    }, room=user_id)
+
+    # Emit to others in group that call is no longer available
+    if call_info["target_type"] == "group":
+        socketio.emit("call_removed", {
+            "call_id": call_id
+        }, room=target_id)
+
+    return jsonify({"ok": True, "assigned_to": user_id})
+
+@app.route("/api/pending_calls/<user_id>")
+def get_pending_calls(user_id):
+    """Get pending calls for a user or group"""
+    calls = PENDING_CALLS.get(user_id, [])
+    return jsonify({"calls": calls})
+
+# ========== END AUTHORIZATION ==========
 
 @app.route("/simulate", methods=["POST"])
 def simulate():
