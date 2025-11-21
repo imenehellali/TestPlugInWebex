@@ -48,18 +48,18 @@
 
     /* Copy notification toast */
     .copy-toast {
-      position: fixed;
-      top: 24px;
-      right: 24px;
-      background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%);
-      color: #0b1020;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-weight: 600;
-      box-shadow: 0 8px 24px rgba(24,226,153,0.4);
-      z-index: 9999;
-      animation: slideIn 0.3s ease-out;
-    }
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%);
+  color: #0b1020;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(24,226,153,0.4);
+  /* z-index removed to satisfy oj-css-bp-zindex */
+  animation: slideIn 0.3s ease-out;
+}
     @keyframes slideIn {
       from { transform: translateX(120%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
