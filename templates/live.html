@@ -58,7 +58,7 @@
     let currentCall = null;
 
     (async function initWebex() {
-      if (!window.Webex || !window.Webex.Application) {
+      if (!window.webex || !window.webex.Application) {
         console.error('Webex SDK v2 not loaded - Are you opening this inside Webex?');
         console.error('This app must be opened as an embedded app within Webex, not directly in a browser.');
 
@@ -73,7 +73,12 @@
       }
 
       console.log('[INIT] Creating Webex Application instance...');
-      webexApp = new window.Webex.Application();
+      const config = {
+        logs: {
+          logLevel: 3, // INFO: 0, WARN: 1, ERROR: 2, SILENT: 3
+        },
+      };
+      webexApp = new window.webex.Application(config);
 
       console.log('[INIT] Waiting for SDK to be ready...');
       await webexApp.onReady();
@@ -83,14 +88,13 @@
       await webexApp.listen();
       console.log('[INIT] Now listening for events!');
 
-      const response = await fetch('/api/auth/me');
-      if (response.ok) {
-        currentUserInfo = await response.json();
-        currentUserId = currentUserInfo.id;
-        document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      // Get user info directly from SDK - NO API call needed!
+      currentUserInfo = webexApp.application.states.user;
+      currentUserId = currentUserInfo.id;
+      document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      console.log('[INIT] User:', currentUserInfo.displayName, 'ID:', currentUserId);
 
-        initSocket();
-      }
+      initSocket();
 
       // CORRECT SDK v2 SYNTAX: Listen to sidebar:callStateChanged
       console.log('[INIT] Registering call event listener...');

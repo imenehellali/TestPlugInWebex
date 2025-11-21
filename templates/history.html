@@ -30,22 +30,26 @@
     let isAdmin = false;
 
     (async function initWebex() {
-      if (!window.Webex || !window.Webex.Application) {
+      if (!window.webex || !window.webex.Application) {
         console.error('Webex SDK v2 not loaded');
         loadHistory();
         return;
       }
 
-      webexApp = new window.Webex.Application();
+      const config = {
+        logs: {
+          logLevel: 3, // INFO: 0, WARN: 1, ERROR: 2, SILENT: 3
+        },
+      };
+      webexApp = new window.webex.Application(config);
       await webexApp.onReady();
       await webexApp.listen();
 
-      const response = await fetch('/api/auth/me');
-      if (response.ok) {
-        currentUserInfo = await response.json();
-        currentUserId = currentUserInfo.id;
-        document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
-      }
+      // Get user info directly from SDK - NO API call needed!
+      currentUserInfo = webexApp.application.states.user;
+      currentUserId = currentUserInfo.id;
+      document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      console.log('[HISTORY] User:', currentUserInfo.displayName, 'ID:', currentUserId);
 
       loadHistory();
     })();

@@ -153,23 +153,28 @@
     let isAdmin = false;
 
     (async function initWebex() {
-      if (!window.Webex || !window.Webex.Application) {
+      if (!window.webex || !window.webex.Application) {
         console.error('Webex SDK v2 not loaded');
         return;
       }
 
-      webexApp = new window.Webex.Application();
+      const config = {
+        logs: {
+          logLevel: 3, // INFO: 0, WARN: 1, ERROR: 2, SILENT: 3
+        },
+      };
+      webexApp = new window.webex.Application(config);
       await webexApp.onReady();
       await webexApp.listen();
 
-      const response = await fetch('/api/auth/me');
-      if (response.ok) {
-        currentUserInfo = await response.json();
-        currentUserId = currentUserInfo.id;
-        document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      // Get user info directly from SDK - NO API call needed!
+      currentUserInfo = webexApp.application.states.user;
+      currentUserId = currentUserInfo.id;
+      document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      console.log('[AUTH] User:', currentUserInfo.displayName, 'ID:', currentUserId);
 
-        // Setup "Generate My Endpoint" button
-        document.getElementById('btnGenMyself').addEventListener('click', async () => {
+      // Setup "Generate My Endpoint" button
+      document.getElementById('btnGenMyself').addEventListener('click', async () => {
           console.log('[AUTH] Generate My Endpoint clicked');
           console.log('[AUTH] currentUserId:', currentUserId);
           console.log('[AUTH] currentUserInfo:', currentUserInfo);
@@ -243,16 +248,15 @@
 
             urlDisplay.innerHTML = `<div style="color: #e78888; padding: 12px; background: rgba(231, 136, 136, 0.1); border-radius: 6px;">⚠️ Error: ${error.message}</div>`;
             urlDisplay.style.display = 'block';
-          }
-        });
+        }
+      });
 
-        // Everyone can access Authorization page (no admin check)
-        console.log('[AUTH] Loading users and groups');
-        isAdmin = true;
+      // Everyone can access Authorization page (no admin check)
+      console.log('[AUTH] Loading users and groups');
+      isAdmin = true;
 
-        loadUsers();
-        loadGroups();
-      }
+      loadUsers();
+      loadGroups();
     })();
 
     async function loadUsers() {
