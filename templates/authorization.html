@@ -106,6 +106,19 @@
       <div class="auth-desc">Generate secure POST API endpoints for users and groups to receive AI call summaries.</div>
     </div>
 
+    <!-- My Own Endpoint -->
+    <div class="group">
+      <div class="head">My Own Endpoint</div>
+      <div class="item user-row">
+        <div class="user-info">
+          <div class="user-name" id="myDisplayName">Loading...</div>
+          <div class="user-detail" id="myEmail"></div>
+        </div>
+        <button class="btn-gen" id="btnGenMyself">Generate My Endpoint</button>
+        <div class="url-display" id="myUrl"></div>
+      </div>
+    </div>
+
     <!-- Internal Users -->
     <div class="group">
       <div class="head">Internal Users</div>
@@ -162,8 +175,17 @@
         currentUserId = currentUserInfo.id;
         document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
 
+        // Populate "My Own Endpoint" section
+        document.getElementById('myDisplayName').textContent = currentUserInfo.displayName || 'Me';
+        document.getElementById('myEmail').textContent = currentUserInfo.emails?.[0] || '';
+
+        // Setup "Generate My Endpoint" button
+        document.getElementById('btnGenMyself').addEventListener('click', async () => {
+          await generateEndpoint(currentUserId, 'user', currentUserInfo.displayName || 'Me', 'myUrl');
+        });
+
         // Everyone can access Authorization page (no admin check)
-        console.log('Loading users and groups for all users');
+        console.log('[AUTH] Loading users and groups');
         isAdmin = true;
 
         loadUsers();
@@ -173,16 +195,25 @@
 
     async function loadUsers() {
       const userList = document.getElementById('userList');
-      
+
       try {
+        console.log('[AUTH] Fetching /api/users/list...');
         const response = await fetch('/api/users/list');
-        if (!response.ok) throw new Error('Failed to load users');
-        
+        console.log('[AUTH] Users API response:', response.status, response.ok);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[AUTH] Users API error:', response.status, errorText);
+          throw new Error(`Failed to load users: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[AUTH] Users data:', data);
         const users = data.items || [];
-        
+        console.log('[AUTH] Found', users.length, 'users');
+
         if (users.length === 0) {
-          userList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No users found</div>';
+          userList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No users found (you might not have spark-admin:people_read scope)</div>';
           return;
         }
 
@@ -205,23 +236,32 @@
 
         attachGenerateListeners();
       } catch (error) {
-        console.error('Error loading users:', error);
-        userList.innerHTML = '<div style="color: #e78888; text-align: center; padding: 20px;">Error loading users</div>';
+        console.error('[AUTH] Error loading users:', error);
+        userList.innerHTML = `<div style="color: #e78888; text-align: center; padding: 20px;">Error: ${error.message}<br><small>Check console for details</small></div>`;
       }
     }
 
     async function loadGroups() {
       const groupList = document.getElementById('groupList');
-      
+
       try {
+        console.log('[AUTH] Fetching /api/groups/list...');
         const response = await fetch('/api/groups/list');
-        if (!response.ok) throw new Error('Failed to load groups');
-        
+        console.log('[AUTH] Groups API response:', response.status, response.ok);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[AUTH] Groups API error:', response.status, errorText);
+          throw new Error(`Failed to load groups: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[AUTH] Groups data:', data);
         const groups = data.items || [];
-        
+        console.log('[AUTH] Found', groups.length, 'groups');
+
         if (groups.length === 0) {
-          groupList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No groups found</div>';
+          groupList.innerHTML = '<div style="color: #9aa7bd; text-align: center; padding: 20px;">No groups found (you might not have spark-admin:workspaces_read scope)</div>';
           return;
         }
 
@@ -244,14 +284,15 @@
 
         attachGenerateListeners();
       } catch (error) {
-        console.error('Error loading groups:', error);
-        groupList.innerHTML = '<div style="color: #e78888; text-align: center; padding: 20px;">Error loading groups</div>';
+        console.error('[AUTH] Error loading groups:', error);
+        groupList.innerHTML = `<div style="color: #e78888; text-align: center; padding: 20px;">Error: ${error.message}<br><small>Check console for details</small></div>`;
       }
     }
 
     function attachGenerateListeners() {
       document.querySelectorAll('.btn-gen').forEach(btn => {
-        if (btn.id !== 'btnGenExt') {
+        // Skip external and personal endpoint buttons (they have their own listeners)
+        if (btn.id !== 'btnGenExt' && btn.id !== 'btnGenMyself') {
           btn.addEventListener('click', async (e) => {
             const targetId = e.target.dataset.id;
             const targetType = e.target.dataset.type;
