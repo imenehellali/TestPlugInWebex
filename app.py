@@ -363,25 +363,66 @@ def generate_auth_token():
         "target_name": target_name
     })
 
-@app.route("/api/forward/<token>", methods=["POST"])
+@app.route("/api/forward/test", methods=["GET", "POST"])
+def test_forward_endpoint():
+    """Test endpoint to verify /api/forward/* is accessible"""
+    print(f"[test_forward_endpoint] Test endpoint hit! Method: {request.method}")
+    print(f"[test_forward_endpoint] Currently loaded AUTH_TOKENS: {len(AUTH_TOKENS)}")
+    for token, info in AUTH_TOKENS.items():
+        print(f"  - {token[:30]}... → {info.get('target_name', 'Unknown')}")
+    return jsonify({
+        "status": "ok",
+        "message": "Test endpoint working",
+        "tokens_loaded": len(AUTH_TOKENS),
+        "method": request.method
+    })
+
+@app.route("/api/forward/<token>", methods=["POST", "OPTIONS"])
 def forward_call(token):
     """
     Receive AI call summary and forward to appropriate user/group.
     Body: {caller, summary, agent_name, customer_name, customer_number, customer_email, concerns, tasks}
     """
-    print(f"[forward_call] Received POST with token: {token[:10]}...")
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST,OPTIONS")
+        return response, 200
+
+    print(f"\n{'='*80}")
+    print(f"[forward_call] ===== INCOMING POST REQUEST =====")
+    print(f"[forward_call] Token received: {token}")
+    print(f"[forward_call] Token length: {len(token)}")
+    print(f"[forward_call] Request headers: {dict(request.headers)}")
+    print(f"[forward_call] Request content type: {request.content_type}")
+    print(f"[forward_call] Raw request data: {request.get_data(as_text=True)[:500]}")
+
+    # Debug: Show all loaded tokens
+    print(f"[forward_call] Currently loaded tokens in AUTH_TOKENS:")
+    for loaded_token, info in AUTH_TOKENS.items():
+        print(f"  - Token: {loaded_token[:30]}... → {info.get('target_name', 'Unknown')}")
 
     if token not in AUTH_TOKENS:
-        print(f"[forward_call] Invalid token!")
-        return jsonify({"error": "invalid token"}), 401
+        print(f"[forward_call] ❌ TOKEN NOT FOUND IN AUTH_TOKENS!")
+        print(f"[forward_call] Expected token: {token}")
+        print(f"[forward_call] Available tokens: {list(AUTH_TOKENS.keys())}")
+        return jsonify({"error": "invalid token", "token_received": token[:20], "tokens_available": len(AUTH_TOKENS)}), 401
 
     auth_info = AUTH_TOKENS[token]
     target_id = auth_info["target_id"]
     target_type = auth_info["target_type"]
 
-    print(f"[forward_call] Token maps to: target_id={target_id[:20]}..., target_type={target_type}")
+    print(f"[forward_call] ✓ Token valid! Maps to: target_id={target_id[:20]}..., target_type={target_type}")
 
-    data = request.get_json(force=True)
+    try:
+        data = request.get_json(force=True)
+        print(f"[forward_call] Parsed JSON data: {json.dumps(data, indent=2)}")
+    except Exception as e:
+        print(f"[forward_call] ❌ Failed to parse JSON: {e}")
+        return jsonify({"error": "invalid json", "details": str(e)}), 400
+
     caller = data.get("caller", "")
     summary = data.get("summary", "")
 
@@ -438,6 +479,8 @@ def forward_call(token):
         }, room=target_id)
         print(f"[forward_call] Socket event emitted successfully")
 
+    print(f"[forward_call] ✓ SUCCESS! Returning call_id: {call_id}")
+    print(f"{'='*80}\n")
     return jsonify({"ok": True, "call_id": call_id})
 
 @app.route("/api/call/pickup", methods=["POST"])
