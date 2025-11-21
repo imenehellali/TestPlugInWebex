@@ -38,6 +38,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # in-memory store; persisted on call end
 CALL_LOGS = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
 
+# Helper function to get bearer token
+def _bearer():
+    """Get the Webex bearer token from environment or default"""
+    return WEBEX_BEARER
+
 # Socket.IO event handlers
 @socketio.on('connect')
 def handle_connect():
@@ -484,10 +489,6 @@ def ingest():
         return jsonify({"ok": True, "stored": "recording_url_placeholder"}), 200
 
     return jsonify({"error": "nothing ingested"}), 400
-
-def _bearer():
-    # for dev: valid for each 12h to modify each log in
-    return os.environ.get("WEBEX_USER_TOKEN", "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
 
 @app.route("/api/calls/history")
 def api_calls_history():

@@ -6,12 +6,18 @@
   <script src="https://unpkg.com/@webex/embedded-app-sdk@2"></script>
   <link rel="stylesheet" href="/static/app.css">
   <style>
-    .intro { color: #9aa7bd; margin-bottom: 24px; line-height: 1.5; }
-    .user-item { display: flex; justify-content: space-between; align-items: center; }
+    .auth-title { color: #68dbc0; font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .auth-desc { color: #9aa7bd; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+    .user-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
     .user-info { flex: 1; min-width: 0; }
-    .user-name { font-weight: 600; color: #e6eefb; }
+    .user-name { font-weight: 600; color: #e6eefb; font-size: 14px; }
     .user-detail { font-size: 12px; color: #9aa7bd; margin-top: 2px; }
-    .btn-generate {
+    .btn-gen {
       padding: 8px 16px;
       background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%, #7b8cff 100%);
       color: #0b1020;
@@ -19,61 +25,63 @@
       border-radius: 6px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
+      font-size: 13px;
+      white-space: nowrap;
       box-shadow: 0 2px 8px rgba(24,226,153,0.2);
-      margin-left: 12px;
+      transition: all 0.2s;
     }
-    .btn-generate:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(24,226,153,0.3); }
-    .btn-generate:disabled { background: #1f334d; color: #9aa7bd; cursor: not-allowed; transform: none; box-shadow: none; }
-    .generated-url {
-      grid-column: 1 / -1;
+    .btn-gen:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(24,226,153,0.3); }
+    .btn-gen:disabled { background: #1f334d; color: #9aa7bd; cursor: not-allowed; transform: none; box-shadow: none; }
+    .url-display {
       margin-top: 8px;
       padding: 10px;
-      background: rgba(24,226,153,0.1);
-      border: 1px solid rgba(24,226,153,0.3);
+      background: rgba(24,226,153,0.08);
+      border: 1px solid rgba(24,226,153,0.25);
       border-radius: 6px;
       font-size: 11px;
       color: #18e299;
       word-break: break-all;
-      font-family: monospace;
+      font-family: 'Courier New', monospace;
       display: none;
     }
-    .copy-notification {
+    .copy-toast {
       position: fixed;
-      top: 20px;
-      right: 20px;
+      top: 24px;
+      right: 24px;
       background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%);
       color: #0b1020;
-      padding: 12px 20px;
+      padding: 14px 24px;
       border-radius: 8px;
       font-weight: 600;
-      box-shadow: 0 6px 20px rgba(24,226,153,0.4);
-      z-index: 1000;
+      font-size: 14px;
+      box-shadow: 0 8px 24px rgba(24,226,153,0.4);
+      z-index: 9999;
       animation: slideIn 0.3s ease-out;
     }
     @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
+      from { transform: translateX(120%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
     }
-    .form-group { margin-bottom: 12px; }
-    .form-label {
+    .ext-form { background: #0b1020; padding: 16px; border-radius: 8px; margin-top: 12px; }
+    .form-row { margin-bottom: 12px; }
+    .form-lbl {
       display: block;
       font-weight: 600;
       color: #e6eefb;
       margin-bottom: 6px;
       font-size: 13px;
     }
-    .form-input {
+    .form-in {
       width: 100%;
-      padding: 10px;
-      background: #0b1020;
+      padding: 10px 12px;
+      background: #132032;
       border: 1px solid #1f334d;
       border-radius: 6px;
       color: #e6eefb;
       font-size: 14px;
       box-sizing: border-box;
     }
-    .form-input:focus {
+    .form-in:focus {
       outline: none;
       border-color: #18e299;
       box-shadow: 0 0 0 3px rgba(24,226,153,0.1);
@@ -91,8 +99,8 @@
 
   <div class="container">
     <div class="card">
-      <h2 style="margin-top: 0; color: #68dbc0;">Authorization Management</h2>
-      <p class="intro">Generate secure POST API endpoints for users and groups to receive AI call summaries.</p>
+      <div class="auth-title">Authorization Management</div>
+      <div class="auth-desc">Generate secure POST API endpoints for users and groups to receive AI call summaries.</div>
     </div>
 
     <!-- Internal Users -->
@@ -114,17 +122,17 @@
     <!-- External Users -->
     <div class="group">
       <div class="head">External Users</div>
-      <div class="item">
-        <div class="form-group">
-          <label class="form-label">User ID / Phone Number</label>
-          <input type="text" id="extUserId" class="form-input" placeholder="+491234567890 or external_user_id">
+      <div class="item ext-form">
+        <div class="form-row">
+          <label class="form-lbl">User ID / Phone Number</label>
+          <input type="text" id="extUserId" class="form-in" placeholder="+491234567890 or external_user_id">
         </div>
-        <div class="form-group">
-          <label class="form-label">Display Name</label>
-          <input type="text" id="extUserName" class="form-input" placeholder="Delivery Person">
+        <div class="form-row">
+          <label class="form-lbl">Display Name</label>
+          <input type="text" id="extUserName" class="form-in" placeholder="Delivery Person">
         </div>
-        <button class="btn-generate" id="btnGenerateExternal">Generate Endpoint</button>
-        <div class="generated-url" id="extGeneratedUrl"></div>
+        <button class="btn-gen" id="btnGenExt">Generate Endpoint</button>
+        <div class="url-display" id="extUrl"></div>
       </div>
     </div>
   </div>
@@ -182,16 +190,16 @@
         userList.innerHTML = '';
         for (const user of users) {
           const item = document.createElement('div');
-          item.className = 'item user-item';
+          item.className = 'item user-row';
           item.innerHTML = `
             <div class="user-info">
               <div class="user-name">${user.displayName || 'Unknown'}</div>
               <div class="user-detail">${user.emails?.[0] || ''}</div>
             </div>
-            <button class="btn-generate" data-id="${user.id}" data-type="user" data-name="${user.displayName || 'User'}">
+            <button class="btn-gen" data-id="${user.id}" data-type="user" data-name="${user.displayName || 'User'}">
               Generate
             </button>
-            <div class="generated-url" id="url-${user.id}"></div>
+            <div class="url-display" id="url-${user.id}"></div>
           `;
           userList.appendChild(item);
         }
@@ -221,16 +229,16 @@
         groupList.innerHTML = '';
         for (const group of groups) {
           const item = document.createElement('div');
-          item.className = 'item user-item';
+          item.className = 'item user-row';
           item.innerHTML = `
             <div class="user-info">
               <div class="user-name">${group.displayName || group.workspaceName || 'Unknown Group'}</div>
               <div class="user-detail">Group ID: ${group.id}</div>
             </div>
-            <button class="btn-generate" data-id="${group.id}" data-type="group" data-name="${group.displayName || group.workspaceName || 'Group'}">
+            <button class="btn-gen" data-id="${group.id}" data-type="group" data-name="${group.displayName || group.workspaceName || 'Group'}">
               Generate
             </button>
-            <div class="generated-url" id="url-${group.id}"></div>
+            <div class="url-display" id="url-${group.id}"></div>
           `;
           groupList.appendChild(item);
         }
@@ -243,13 +251,13 @@
     }
 
     function attachGenerateListeners() {
-      document.querySelectorAll('.btn-generate').forEach(btn => {
-        if (btn.id !== 'btnGenerateExternal') {
+      document.querySelectorAll('.btn-gen').forEach(btn => {
+        if (btn.id !== 'btnGenExt') {
           btn.addEventListener('click', async (e) => {
             const targetId = e.target.dataset.id;
             const targetType = e.target.dataset.type;
             const targetName = e.target.dataset.name;
-            
+
             await generateEndpoint(targetId, targetType, targetName, e.target);
           });
         }
@@ -298,18 +306,16 @@
     }
 
     function showCopyNotification() {
-      const notification = document.createElement('div');
-      notification.className = 'copy-notification';
-      notification.textContent = 'URL copied to clipboard!';
-      document.body.appendChild(notification);
+      const toast = document.createElement('div');
+      toast.className = 'copy-toast';
+      toast.textContent = '✓ URL copied to clipboard!';
+      document.body.appendChild(toast);
 
-      setTimeout(() => {
-        notification.remove();
-      }, 3000);
+      setTimeout(() => { toast.remove(); }, 3000);
     }
 
     // External user generation
-    document.getElementById('btnGenerateExternal').addEventListener('click', async () => {
+    document.getElementById('btnGenExt').addEventListener('click', async () => {
       const userId = document.getElementById('extUserId').value.trim();
       const userName = document.getElementById('extUserName').value.trim() || 'External User';
 
@@ -318,25 +324,42 @@
         return;
       }
 
-      await generateEndpoint(userId, 'external', userName, document.getElementById('btnGenerateExternal'));
-      
-      const urlDiv = document.getElementById('extGeneratedUrl');
-      const response = await fetch('/api/auth/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_id: userId,
-          target_type: 'external',
-          target_name: userName
-        })
-      });
+      const btn = document.getElementById('btnGenExt');
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
 
-      if (response.ok) {
-        const data = await response.json();
-        urlDiv.textContent = data.post_url;
-        urlDiv.style.display = 'block';
-        await navigator.clipboard.writeText(data.post_url);
-        showCopyNotification();
+      try {
+        const response = await fetch('/api/auth/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target_id: userId,
+            target_type: 'external',
+            target_name: userName
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const urlDiv = document.getElementById('extUrl');
+          urlDiv.textContent = data.post_url;
+          urlDiv.style.display = 'block';
+          await navigator.clipboard.writeText(data.post_url);
+          showCopyNotification();
+
+          btn.textContent = 'Generated ✓';
+          setTimeout(() => {
+            btn.textContent = 'Regenerate';
+            btn.disabled = false;
+          }, 2000);
+        } else {
+          btn.textContent = 'Error';
+          btn.disabled = false;
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        btn.textContent = 'Error';
+        btn.disabled = false;
       }
     });
 
