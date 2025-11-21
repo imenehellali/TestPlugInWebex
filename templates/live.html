@@ -56,7 +56,16 @@
 
     (async function initWebex() {
       if (!window.Webex || !window.Webex.Application) {
-        console.error('Webex SDK v2 not loaded');
+        console.error('Webex SDK v2 not loaded - Are you opening this inside Webex?');
+        console.error('This app must be opened as an embedded app within Webex, not directly in a browser.');
+
+        // Show error message to user
+        document.getElementById('liveHeader').textContent = '⚠️ SDK Not Loaded';
+        document.getElementById('liveSub').innerHTML = 'This app must be opened <strong>inside Webex</strong>, not in a regular browser.<br>Open Webex → Apps → Your Embedded App';
+        document.getElementById('liveIdle').classList.add('hidden');
+
+        // Still try to initialize other features (history might work)
+        tryInitializeWithoutSDK();
         return;
       }
 
@@ -110,6 +119,28 @@
 
       console.log('Call event listeners registered!');
     })();
+
+    async function tryInitializeWithoutSDK() {
+      // Try to get user info from backend
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          currentUserInfo = await response.json();
+          currentUserId = currentUserInfo.id;
+          document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+
+          // Show Authorization tab - let them at least generate endpoints
+          console.log('Showing Authorization tab (SDK-less mode)');
+          document.getElementById('tabAuth').style.display = 'block';
+          isAdmin = true;
+
+          // Initialize socket for testing
+          initSocket();
+        }
+      } catch (e) {
+        console.error('Could not initialize without SDK:', e);
+      }
+    }
 
     function handleCallStateChange(call) {
       const state = (call?.state || 'unknown').toLowerCase();
