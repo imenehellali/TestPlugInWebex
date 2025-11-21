@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Placetel AI – History</title>
+  <script src="https://unpkg.com/@webex/embedded-app-sdk@2"></script>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+
+<body class="page">
+  <div class="topbar">
+    <button id="tabLive" class="tab">Live</button>
+    <button id="tabHist" class="tab tab--active">History</button>
+    <button id="tabAuth" class="tab">Authorization</button>
+    <span id="userInfo" style="margin-left: auto; font-size: 12px; color: #9aa7bd;"></span>
+  </div>
+
+  <div class="container">
+    <div id="histWrap"></div>
+    <div id="histEmpty" class="empty hidden">
+      <img class="pulse" src="/static/bot.png" alt="AI bot">
+      <div>No history yet...</div>
+    </div>
+  </div>
+
+  <script>
+    let webexApp = null;
+    let currentUserId = null;
+    let currentUserInfo = null;
+    let isAdmin = false;
+
+    (async function initWebex() {
+      if (!window.Webex && !window.webex) {
+        console.error('Webex SDK v2 not loaded');
+        loadHistory();
+        return;
+      }
+
+      // Support both globals; prefer v2 location window.webex.Application
+      webexApp = window.webex
+        ? new window.webex.Application()
+        : new window.Webex.Application();
+
+      await webexApp.onReady();
+      await webexApp.listen();
+
+      // Get current user directly from SDK v2 (no /api/auth/me)
+      const user = webexApp.application?.states?.user;
+      if (user && user.id) {
+        currentUserInfo = user;
+        currentUserId = user.id;
+        document.getElementById('userInfo').textContent =
+          user.displayName || (user.emails && user.emails[0]) || 'User';
+      } else {
+        console.warn('[HIST] No user from SDK, using fallback id');
+        currentUserInfo = { id: 'dev-user', displayName: 'Local Dev User', emails: ['dev@example.com'] };
+        currentUserId = currentUserInfo.id;
+        document.getElementById('userInfo').textContent = currentUserInfo.displayName;
+      }
+
+      loadHistory();
+    })();
+
+    async function loadHistory() {
+      const wrap = document.getElementById('histWrap');
+      const empty = document.getElementById('histEmpty');
+      wrap.innerHTML = '';
+      empty.classList.add('hidden');
+
+      const hist = await (await fetch('/api/calls/history')).json();
+      const items = hist?.items || [];
+      if (!items.length) {
+        empty.classList.remove('hidden');
+        return;
+      }
+
+      const byCaller = new Map();
+      for (const rec of items) {
+        const label = (rec.name && rec.name.trim()) || rec.number || 'Unknown';
+        if (!byCaller.has(label)) byCaller.set(label, []);
+        byCaller.get(label).push(rec);
+      }
+
+      for (const [label, arr] of byCaller.entries()) {
+        const g = document.createElement('div');
+        g.className = 'group';
+        const h = document.createElement('div');
+        h.className = 'head';
+        h.textContent = label;
+        g.appendChild(h);
+
+        arr.sort((a, b) => b.time.localeCompare(a.time));
+        for (const rec of arr) {
+          const it = document.createElement('div');
+          it.className = 'item';
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.textContent = `${rec.type} | ${rec.time}`;
+          const sum = document.createElement('div');
+          sum.className = 'sum';
+          sum.textContent = '(no transcript yet)';
+          it.appendChild(meta);
+          it.appendChild(sum);
+
+          it.addEventListener('click', async () => {
+            const old = g.querySelector('.drawer');
+            if (old) {
+              old.remove();
+              return;
+            }
+
+            const drawer = document.createElement('div');
+            drawer.className = 'card drawer';
+            drawer.style.marginTop = '8px';
+            drawer.innerHTML = `
+              <div class="head">${label}</div>
+              <div class="meta">${rec.type} | ${rec.time}</div>
+              <div id="recMeta" class="meta">Looking for recordings…</div>
+              <div style="margin-top:8px;display:flex;gap:8px;">
+                <button id="btnDl" disabled style="padding:8px 12px;background:#1f334d;border:none;border-radius:6px;color:#e6eefb;cursor:pointer;">Download audio</button>
+                <button id="btnTx" disabled style="padding:8px 12px;background:#1f334d;border:none;border-radius:6px;color:#e6eefb;cursor:pointer;">Transcribe & attach</button>
+              </div>
+              <div id="txOut" class="sum"></div>
+            `;
+            it.insertAdjacentElement('afterend', drawer);
+
+            const sessionId = rec.callSessionId || rec.sessionId || null;
+            if (!sessionId) {
+              drawer.querySelector('#recMeta').textContent = 'No callSessionId on this record.';
+              return;
+            }
+
+            const r = await fetch(`/api/calls/recordings?sessionId=${encodeURIComponent(sessionId)}`);
+            if (!r.ok) {
+              drawer.querySelector('#recMeta').textContent = 'No recordings found or not authorized.';
+              return;
+            }
+            const data = await r.json();
+            const item = (data.items || [])[0];
+            if (!item) {
+              drawer.querySelector('#recMeta').textContent = 'No recordings for this session.';
+              return;
+            }
+
+            drawer.querySelector('#recMeta').textContent = `Recording ${item.format}, ${item.durationSeconds}s`;
+            const btnDl = drawer.querySelector('#btnDl');
+            const btnTx = drawer.querySelector('#btnTx');
+            btnDl.disabled = btnTx.disabled = false;
+
+            btnDl.onclick = () => window.open(`/api/calls/recordings/${item.id}/download`, '_blank');
+
+            btnTx.onclick = async () => {
+              drawer.querySelector('#txOut').textContent = 'Transcribing…';
+              const t = await (await fetch(`/api/calls/recordings/${item.id}/transcribe`, { method: 'POST' })).json();
+              drawer.querySelector('#txOut').textContent = t.text || '(empty)';
+            };
+          });
+
+          g.appendChild(it);
+        }
+        wrap.appendChild(g);
+      }
+    }
+
+    document.getElementById('tabLive').addEventListener('click', () => {
+      window.location.href = '/live';
+    });
+
+    document.getElementById('tabHist').addEventListener('click', () => {});
+
+    document.getElementById('tabAuth').addEventListener('click', () => {
+      window.location.href = '/authorization';
+    });
+  </script>
+</body>
+</html>

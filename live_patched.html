@@ -36,15 +36,6 @@
       <div id="liveIdle" class="empty">
         <img class="pulse" src="/static/bot.png" alt="AI bot">
         <div>AI patiently waiting for calls.</div>
-        <!-- Debug test button -->
-        <button
-  id="btnTestCall"
-  class="oj-sm-margin-top-2x oj-sm-padding-1x oj-sm-padding-horizontal-2x"
-  style="background:#3ec5ff;color:#0b1020;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px;"
->
-  🧪 Test Call Detection
-</button>
-
       </div>
 
       <div id="pickupContainer"
@@ -67,7 +58,7 @@
     let currentCall = null;
 
     (async function initWebex() {
-      if (!window.webex || !window.webex.Application) {
+      if (!window.Webex || !window.Webex.Application) {
         console.error('Webex SDK v2 not loaded - Are you opening this inside Webex?');
         console.error('This app must be opened as an embedded app within Webex, not directly in a browser.');
 
@@ -82,12 +73,7 @@
       }
 
       console.log('[INIT] Creating Webex Application instance...');
-      const config = {
-        logs: {
-          logLevel: 3, // INFO: 0, WARN: 1, ERROR: 2, SILENT: 3
-        },
-      };
-      webexApp = new window.webex.Application(config);
+      webexApp = window.webex ? new window.webex.Application() : new window.Webex.Application();
 
       console.log('[INIT] Waiting for SDK to be ready...');
       await webexApp.onReady();
@@ -97,41 +83,97 @@
       await webexApp.listen();
       console.log('[INIT] Now listening for events!');
 
-      // Get user info directly from SDK - NO API call needed!
-      currentUserInfo = webexApp.application.states.user;
-      currentUserId = currentUserInfo.id;
-      document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
-      console.log('[INIT] User:', currentUserInfo.displayName, 'ID:', currentUserId);
 
+      // Get current Webex user directly from SDK v2 (no backend auth)
+      const user = webexApp.application?.states?.user;
+      if (user && user.id) {
+        currentUserInfo = user;
+        currentUserId = user.id;
+        document.getElementById('userInfo').textContent =
+          user.displayName || (user.emails && user.emails[0]) || 'User';
+      } else {
+        console.warn('[INIT] No user from SDK, using fallback id');
+        currentUserInfo = { id: 'dev-user', displayName: 'Local Dev User', emails: ['dev@example.com'] };
+        currentUserId = currentUserInfo.id;
+        document.getElementById('userInfo').textContent = currentUserInfo.displayName;
+      }
+
+      // Initialize sockets for AI summaries (independent from call detection)
       initSocket();
 
-      // CORRECT SDK v2 SYNTAX: Listen to sidebar:callStateChanged
-      console.log('[INIT] Registering call event listener...');
-      console.log('[INIT] Available events on SDK:', Object.keys(webexApp));
 
-      webexApp.on('sidebar:callStateChanged', (call) => {
-        console.log('[EVENT] ===== sidebar:callStateChanged FIRED =====');
-        console.log('[EVENT] Call data:', JSON.stringify(call, null, 2));
-        handleCallStateChange(call);
+      // Listen to ALL possible call events for debugging
+      console.log('[INIT] Registering call event listeners...');
+
+      // Try multiple event names (SDK v2 might use different names)
+      const callEvents = [
+        'application:callStateChanged',
+        'application:incomingCall',
+        'application:outgoingCall',
+        'application:activeCall',
+        'call:stateChanged',
+        'call:incoming',
+        'call:connected',
+        'call:disconnected'
+      ];
+
+      callEvents.forEach(eventName => {
+        webexApp.on(eventName, (call) => {
+          console.log(`[EVENT] ${eventName}`, call);
+          handleCallStateChange(call);
+        });
       });
 
-      console.log('[INIT] Call event listener registered successfully!');
-      console.log('[INIT] ===== SDK FULLY INITIALIZED =====');
-      console.log('[INIT] Make a call in Webex to test call detection');
+      console.log('[INIT] Call event listeners registered for:', callEvents);
+
+      // BACKUP METHOD: Poll for active calls every 2 seconds
+      console.log('[INIT] Starting call polling backup method...');
+      let lastCallId = null;
+
+      setInterval(async () => {
+        try {
+          // Try to get context which includes call info
+          const context = await webexApp.context.getUser();
+          console.log('[POLL] User context:', context);
+
+          // Check if there's an active call
+          if (window.Webex && window.Webex.calling) {
+            const calls = window.Webex.calling.getCalls();
+            console.log('[POLL] Active calls:', calls);
+
+            if (calls && calls.length > 0) {
+              const activeCall = calls[0];
+              if (activeCall.id !== lastCallId) {
+                console.log('[POLL] NEW CALL DETECTED!', activeCall);
+                lastCallId = activeCall.id;
+                handleCallStateChange(activeCall);
+              }
+            } else if (lastCallId) {
+              // Call ended
+              console.log('[POLL] Call ended');
+              lastCallId = null;
+              resetLiveView();
+            }
+          }
+        } catch (e) {
+          // Silently ignore polling errors
+        }
+      }, 2000);
+
+      console.log('[INIT] Call polling started');
     })();
 
+    
     async function tryInitializeWithoutSDK() {
-      // Try to get user info from backend
+      // Fallback path when SDK v2 is not available (local browser testing)
       try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          currentUserInfo = await response.json();
-          currentUserId = currentUserInfo.id;
-          document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+        console.warn('[INIT] SDK not available, using dev fallback user');
+        currentUserInfo = { id: 'dev-user', displayName: 'Local Dev User', emails: ['dev@example.com'] };
+        currentUserId = currentUserInfo.id;
+        document.getElementById('userInfo').textContent = currentUserInfo.displayName;
 
-          // Initialize socket for testing
-          initSocket();
-        }
+        // Initialize socket even without Webex SDK
+        initSocket();
       } catch (e) {
         console.error('Could not initialize without SDK:', e);
       }
@@ -140,43 +182,37 @@
     function handleCallStateChange(call) {
       const state = (call?.state || 'unknown').toLowerCase();
       const remoteNumber = getRemoteNumber(call);
+      const localNumber = getLocalNumber(call);
       const displayName = call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || '';
 
-      console.log('[CALL] State changed:', { state, remoteNumber, displayName });
+      console.log('[CALL] State changed:', { state, remoteNumber, localNumber, displayName, currentUserId });
 
-      // Handle call end
-      if (state === 'ended' || state === 'completed' || state === 'disconnected') {
-        console.log('[CALL] Call ended, resetting view');
-        resetLiveView();
-        return;
-      }
+      const payload = {
+        event: state,
+        call_id: call.id,
+        remoteNumber,
+        localNumber,
+        displayName,
+        user_id: currentUserId  // Add user ID so server knows who to emit to
+      };
 
-      // For ANY active call, show caller immediately
-      if (state === 'ringing' || state === 'connected' || state === 'active') {
-        const callerLabel = remoteNumber || displayName || 'Unknown Caller';
-        console.log('[CALL] Showing caller:', callerLabel);
+      console.log('[CALL] Sending to /simulate:', payload);
 
-        // Exit idle mode
-        setIdle(false);
-
-        // Show caller number
-        document.getElementById('liveHeader').textContent = callerLabel;
-        document.getElementById('liveSub').textContent = `Call ${state}`;
-
-        // Show equalizer when connected
-        if (state === 'connected' || state === 'active') {
-          showEqualizer(true);
-
-          // Check if we have AI summary from socket
-          if (currentCall && currentCall.call_data) {
-            console.log('[CALL] AI summary available, showing structured panel');
-            displayCallSummary(currentCall.call_data);
-          } else {
-            console.log('[CALL] No AI summary, showing placeholder');
-            showNoSummaryPlaceholder();
-          }
-        }
-      }
+      fetch('/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      .then(response => {
+        console.log('[CALL] /simulate response:', response.status, response.ok);
+        return response.json();
+      })
+      .then(data => {
+        console.log('[CALL] /simulate result:', data);
+      })
+      .catch(err => {
+        console.error('[CALL] Simulate error:', err);
+      });
     }
 
     function getLocalNumber(call = {}) {
@@ -250,23 +286,21 @@
     }
 
     function handleIncomingCall(data) {
-      console.log('[SOCKET] AI Summary received:', data);
-
-      // Store AI summary data
+      console.log('Incoming call:', data);
       currentCall = data;
 
-      // If user is currently in a call, show the summary immediately
-      const isInCall = !document.getElementById('liveIdle').classList.contains('hidden') === false;
+      document.getElementById('liveHeader').textContent = data.caller || 'Unknown';
+      document.getElementById('liveSub').textContent = 'Incoming call';
 
-      if (isInCall && data.call_data) {
-        console.log('[SOCKET] User in call, displaying AI summary');
+      setIdle(false);
+
+      if (data.show_summary) {
         displayCallSummary(data.call_data);
         showEqualizer(true);
-      } else if (data.show_summary === false && data.target_type === 'group') {
-        // Group call - show pickup button
-        console.log('[SOCKET] Group call, showing pickup button');
+      } else {
         document.getElementById('liveTx').classList.add('hidden');
         document.getElementById('pickupContainer').classList.remove('hidden');
+        document.getElementById('liveSub').textContent = 'Group call - pick up to see details';
       }
     }
 
@@ -470,26 +504,6 @@
 
     document.getElementById('tabAuth').addEventListener('click', () => {
       window.location.href = '/authorization';
-    });
-
-    // Test button to simulate call detection
-    document.getElementById('btnTestCall').addEventListener('click', () => {
-      console.log('[TEST] Simulating call event...');
-      const testCallData = {
-        state: 'Ringing',
-        callType: 'Received',
-        id: 'test-call-123',
-        remoteParticipants: [{
-          callerID: '+491234567890',
-          name: 'Test Caller'
-        }],
-        localParticipant: {
-          callerID: currentUserId || 'user-123',
-          name: currentUserInfo?.displayName || 'You'
-        }
-      };
-      console.log('[TEST] Calling handleCallStateChange with:', testCallData);
-      handleCallStateChange(testCallData);
     });
 
     setIdle(true);
