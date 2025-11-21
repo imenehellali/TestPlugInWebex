@@ -36,6 +36,10 @@
       <div id="liveIdle" class="empty">
         <img class="pulse" src="/static/bot.png" alt="AI bot">
         <div>AI patiently waiting for calls.</div>
+        <!-- Debug test button -->
+        <button id="btnTestCall" style="margin-top: 16px; padding: 8px 16px; background: #3ec5ff; color: #0b1020; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;">
+          🧪 Test Call Detection
+        </button>
       </div>
 
       <div id="pickupContainer"
@@ -98,13 +102,17 @@
 
       // CORRECT SDK v2 SYNTAX: Listen to sidebar:callStateChanged
       console.log('[INIT] Registering call event listener...');
+      console.log('[INIT] Available events on SDK:', Object.keys(webexApp));
 
       webexApp.on('sidebar:callStateChanged', (call) => {
-        console.log('[EVENT] sidebar:callStateChanged', call);
+        console.log('[EVENT] ===== sidebar:callStateChanged FIRED =====');
+        console.log('[EVENT] Call data:', JSON.stringify(call, null, 2));
         handleCallStateChange(call);
       });
 
       console.log('[INIT] Call event listener registered successfully!');
+      console.log('[INIT] ===== SDK FULLY INITIALIZED =====');
+      console.log('[INIT] Make a call in Webex to test call detection');
     })();
 
     async function tryInitializeWithoutSDK() {
@@ -457,6 +465,26 @@
 
     document.getElementById('tabAuth').addEventListener('click', () => {
       window.location.href = '/authorization';
+    });
+
+    // Test button to simulate call detection
+    document.getElementById('btnTestCall').addEventListener('click', () => {
+      console.log('[TEST] Simulating call event...');
+      const testCallData = {
+        state: 'Ringing',
+        callType: 'Received',
+        id: 'test-call-123',
+        remoteParticipants: [{
+          callerID: '+491234567890',
+          name: 'Test Caller'
+        }],
+        localParticipant: {
+          callerID: currentUserId || 'user-123',
+          name: currentUserInfo?.displayName || 'You'
+        }
+      };
+      console.log('[TEST] Calling handleCallStateChange with:', testCallData);
+      handleCallStateChange(testCallData);
     });
 
     setIdle(true);
