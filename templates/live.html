@@ -123,6 +123,33 @@
       webexApp.on('sidebar:callStateChanged', (call) => {
         console.log('[EVENT] ===== sidebar:callStateChanged FIRED =====');
         console.log('[EVENT] Call data:', JSON.stringify(call, null, 2));
+
+        // POST to backend /simulate endpoint (like MFSim branch)
+        const state = (call?.state || '').toLowerCase();
+        const remoteNumber = getRemoteNumber(call);
+        const localNumber = getLocalNumber(call);
+        const displayName = call.remoteParticipants?.[0]?.name || call.displayName || '';
+
+        console.log('[EVENT] POSTing to /simulate:', { state, remoteNumber, displayName });
+
+        fetch('/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: state,
+            call_id: call.id,
+            remoteNumber,
+            localNumber,
+            displayName,
+            user_id: currentUserId
+          })
+        }).then(r => {
+          console.log('[EVENT] /simulate response:', r.status);
+        }).catch((err) => {
+          console.error('[EVENT] /simulate error:', err);
+        });
+
+        // Also handle client-side
         handleCallStateChange(call);
       });
 
