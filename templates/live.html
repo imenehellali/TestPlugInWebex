@@ -173,37 +173,43 @@
     function handleCallStateChange(call) {
       const state = (call?.state || 'unknown').toLowerCase();
       const remoteNumber = getRemoteNumber(call);
-      const localNumber = getLocalNumber(call);
       const displayName = call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || '';
 
-      console.log('[CALL] State changed:', { state, remoteNumber, localNumber, displayName, currentUserId });
+      console.log('[CALL] State changed:', { state, remoteNumber, displayName });
 
-      const payload = {
-        event: state,
-        call_id: call.id,
-        remoteNumber,
-        localNumber,
-        displayName,
-        user_id: currentUserId  // Add user ID so server knows who to emit to
-      };
+      // Handle call end
+      if (state === 'ended' || state === 'completed' || state === 'disconnected') {
+        console.log('[CALL] Call ended, resetting view');
+        resetLiveView();
+        return;
+      }
 
-      console.log('[CALL] Sending to /simulate:', payload);
+      // For ANY active call, show caller immediately
+      if (state === 'ringing' || state === 'connected' || state === 'active') {
+        const callerLabel = remoteNumber || displayName || 'Unknown Caller';
+        console.log('[CALL] Showing caller:', callerLabel);
 
-      fetch('/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      .then(response => {
-        console.log('[CALL] /simulate response:', response.status, response.ok);
-        return response.json();
-      })
-      .then(data => {
-        console.log('[CALL] /simulate result:', data);
-      })
-      .catch(err => {
-        console.error('[CALL] Simulate error:', err);
-      });
+        // Exit idle mode
+        setIdle(false);
+
+        // Show caller number
+        document.getElementById('liveHeader').textContent = callerLabel;
+        document.getElementById('liveSub').textContent = `Call ${state}`;
+
+        // Show equalizer when connected
+        if (state === 'connected' || state === 'active') {
+          showEqualizer(true);
+
+          // Check if we have AI summary from socket
+          if (currentCall && currentCall.call_data) {
+            console.log('[CALL] AI summary available, showing structured panel');
+            displayCallSummary(currentCall.call_data);
+          } else {
+            console.log('[CALL] No AI summary, showing placeholder');
+            showNoSummaryPlaceholder();
+          }
+        }
+      }
     }
 
     function getLocalNumber(call = {}) {
@@ -277,21 +283,23 @@
     }
 
     function handleIncomingCall(data) {
-      console.log('Incoming call:', data);
+      console.log('[SOCKET] AI Summary received:', data);
+
+      // Store AI summary data
       currentCall = data;
 
-      document.getElementById('liveHeader').textContent = data.caller || 'Unknown';
-      document.getElementById('liveSub').textContent = 'Incoming call';
+      // If user is currently in a call, show the summary immediately
+      const isInCall = !document.getElementById('liveIdle').classList.contains('hidden') === false;
 
-      setIdle(false);
-
-      if (data.show_summary) {
+      if (isInCall && data.call_data) {
+        console.log('[SOCKET] User in call, displaying AI summary');
         displayCallSummary(data.call_data);
         showEqualizer(true);
-      } else {
+      } else if (data.show_summary === false && data.target_type === 'group') {
+        // Group call - show pickup button
+        console.log('[SOCKET] Group call, showing pickup button');
         document.getElementById('liveTx').classList.add('hidden');
         document.getElementById('pickupContainer').classList.remove('hidden');
-        document.getElementById('liveSub').textContent = 'Group call - pick up to see details';
       }
     }
 

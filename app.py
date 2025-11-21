@@ -293,6 +293,8 @@ def generate_auth_token():
     target_type = data.get("target_type")  # user, group, external
     target_name = data.get("target_name", "")
 
+    print(f"[generate_auth_token] Request: target_id={target_id[:20] if target_id else None}..., target_type={target_type}, target_name={target_name}")
+
     if not target_id or not target_type:
         return jsonify({"error": "target_id and target_type required"}), 400
 
@@ -303,6 +305,8 @@ def generate_auth_token():
         "target_name": target_name,
         "created": datetime.utcnow().isoformat() + "Z"
     }
+
+    print(f"[generate_auth_token] Generated token: {token[:10]}... for Webex UID: {target_id[:20]}...")
 
     # Save to disk
     auth_file = AUTH_DIR / f"{target_id}.json"
@@ -327,12 +331,17 @@ def forward_call(token):
     Receive AI call summary and forward to appropriate user/group.
     Body: {caller, summary, agent_name, customer_name, customer_number, customer_email, concerns, tasks}
     """
+    print(f"[forward_call] Received POST with token: {token[:10]}...")
+
     if token not in AUTH_TOKENS:
+        print(f"[forward_call] Invalid token!")
         return jsonify({"error": "invalid token"}), 401
 
     auth_info = AUTH_TOKENS[token]
     target_id = auth_info["target_id"]
     target_type = auth_info["target_type"]
+
+    print(f"[forward_call] Token maps to: target_id={target_id[:20]}..., target_type={target_type}")
 
     data = request.get_json(force=True)
     caller = data.get("caller", "")
@@ -366,6 +375,7 @@ def forward_call(token):
     # Emit socket event based on target type
     if target_type == "user" or target_type == "external":
         # Single user - immediately show full summary
+        print(f"[forward_call] Emitting 'incoming_call' to Webex UID room: {target_id[:20]}...")
         socketio.emit("incoming_call", {
             "call_id": call_id,
             "caller": caller,
@@ -375,8 +385,10 @@ def forward_call(token):
             "call_data": call_data,
             "summary": summary
         }, room=target_id)
+        print(f"[forward_call] Socket event emitted successfully")
     elif target_type == "group":
         # User group - show caller number only, wait for pickup
+        print(f"[forward_call] Emitting 'incoming_call' (group) to room: {target_id[:20]}...")
         socketio.emit("incoming_call", {
             "call_id": call_id,
             "caller": caller,
@@ -386,6 +398,7 @@ def forward_call(token):
             "call_data": None,
             "summary": None
         }, room=target_id)
+        print(f"[forward_call] Socket event emitted successfully")
 
     return jsonify({"ok": True, "call_id": call_id})
 
