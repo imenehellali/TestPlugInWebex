@@ -31,43 +31,19 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # in-memory store; persisted on call end
 CALL_LOGS = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
+TRANSCRIPT_INDEX_BY_FORWARD = {}  # {forward_number: {call_id, number, ts}}
 
-<<<<<<< Updated upstream
-=======
-# Helper function to get bearer token
-def _bearer():
-    """Get the Webex bearer token from environment or default"""
-    return WEBEX_BEARER
-
-# Load AUTH_TOKENS from disk on startup
-def load_auth_tokens():
-    """Load all saved auth tokens from disk into memory"""
-    print("[STARTUP] Loading auth tokens from disk...")
-    count = 0
-    for auth_file in AUTH_DIR.glob("*.json"):
-        try:
-            with open(auth_file, "r") as f:
-                auth_data = json.load(f)
-                # Token IS the Webex UID (target_id)
-                token = auth_data["target_id"]
-                AUTH_TOKENS[token] = auth_data
-                count += 1
-                print(f"[STARTUP] Loaded token for {auth_data.get('target_name', 'Unknown')}: {token[:20]}...")
-        except Exception as e:
-            print(f"[STARTUP] Error loading {auth_file}: {e}")
-    print(f"[STARTUP] Loaded {count} auth tokens from disk")
-
-# Load tokens on startup
-load_auth_tokens()
 
 # Socket.IO event handlers
-@socketio.on('connect')
+@socketio.on("connect")
 def handle_connect():
-    print(f'Client connected: {request.sid}')
+    print(f"Client connected: {request.sid}")
 
-@socketio.on('disconnect')
+
+@socketio.on("disconnect")
 def handle_disconnect():
-    print(f'Client disconnected: {request.sid}')
+    print(f"Client disconnected: {request.sid}")
+
 
 @socketio.on("join")
 def handle_join(data):
@@ -80,22 +56,20 @@ def handle_join(data):
         join_room(user_id)
         print(f"User {user_id} joined room")
 
-    # allow joining multiple group rooms
     for gid in group_ids:
         if gid and isinstance(gid, str):
             join_room(gid)
             print(f"User {user_id or request.sid} joined group room {gid}")
 
 
-@socketio.on('leave')
+@socketio.on("leave")
 def handle_leave(data):
-    user_id = data.get('user_id')
+    user_id = data.get("user_id")
     if user_id:
         from flask_socketio import leave_room
-        leave_room(user_id)
-        print(f'User {user_id} left room')
 
->>>>>>> Stashed changes
+        leave_room(user_id)
+        print(f"User {user_id} left room")
 @app.after_request
 def set_headers(resp):
     csp = "frame-ancestors 'self' https://*.webex.com https://*.webexcontent.com https://*.cisco.com"
@@ -398,28 +372,96 @@ def people_lookup():
                      timeout=10)
     return (r.text, r.status_code, {"Content-Type":"application/json"})
 
+@app.post("/api/webhooks/calls/assigned")
+def webhook_call_assigned():
+    """
+    Body: { "forward_number": "+49...", "user_id": "webex_user_id", "call_id": "uuid?" }
+    Validates that forward_number matches a prior transcript POST.
+    Emits a call_assigned Socket.IO event to the assigned user.
+    """
+    data = request.get_json(force=True)
+    forward_number = (data.get("forward_number") or "").strip()
+    user_id = (data.get("user_id") or "").strip()
+    call_id = (data.get("call_id") or "").strip() or None
+
+    print("[WEBHOOK] call_assigned received", {
+        "forward_number": forward_number,
+        "user_id": user_id,
+        "call_id": call_id,
+    })
+
+    if not forward_number or not user_id:
+        return jsonify({"error": "forward_number and user_id required"}), 400
+
+    transcript_meta = TRANSCRIPT_INDEX_BY_FORWARD.get(forward_number)
+    if not transcript_meta:
+        print("[WEBHOOK] call_assigned rejected: forward_number missing in transcript store")
+        return jsonify({"error": "forward_number not found in transcript store"}), 409
+
+    stored_call_id = transcript_meta.get("call_id")
+    if call_id and stored_call_id and call_id != stored_call_id:
+        print("[WEBHOOK] call_assigned rejected: call_id mismatch", {
+            "expected": stored_call_id,
+            "received": call_id,
+        })
+        return jsonify({"error": "call_id does not match transcript store"}), 409
+
+    if not call_id and stored_call_id:
+        call_id = stored_call_id
+
+    call_data = CALL_LOGS.get(call_id) if call_id else None
+    payload = {
+        "call_id": call_id,
+        "forward_number": forward_number,
+        "user_id": user_id,
+        "call_data": call_data,
+    }
+
+    socketio.emit("call_assigned", payload, room=user_id)
+    print("[WEBHOOK] call_assigned delivered", {
+        "user_id": user_id,
+        "call_id": call_id,
+        "forward_number": forward_number,
+    })
+    return jsonify({"ok": True, "call_id": call_id}), 200
+
 @app.post("/api/live/transcript")
 def api_live_transcript():
     """
-    Body: { "number": "+49...", "text": "..." }
+    Body: { "number": "+49...", "text": "...", "forward_number": "+49...", "call_id": "uuid?" }
     Emits a call_event so the Live panel shows it immediately, creating a call_id if needed.
     """
     j = request.get_json(force=True)
     number = (j.get("number") or "").strip()
     text   = (j.get("text")   or "").strip()
+    forward_number = (j.get("forward_number") or "").strip()
+    requested_call_id = (j.get("call_id") or "").strip()
     if not number or not text:
         return jsonify({"error":"number and text required"}), 400
 
-    call_id = LAST_ACTIVE_BY_NUMBER.get(number)
+    call_id = requested_call_id or LAST_ACTIVE_BY_NUMBER.get(number)
     if not call_id:
         # synthesize a pseudo-call so UI has somewhere to render
         call_id = str(uuid.uuid4())
-        CALL_LOGS.setdefault(call_id, {
+    if call_id not in CALL_LOGS:
+        CALL_LOGS[call_id] = {
             "caller": number,
             "created": datetime.utcnow().isoformat()+"Z",
             "events": []
+        }
+    LAST_ACTIVE_BY_NUMBER[number] = call_id
+
+    if forward_number:
+        TRANSCRIPT_INDEX_BY_FORWARD[forward_number] = {
+            "call_id": call_id,
+            "number": number,
+            "ts": datetime.utcnow().isoformat() + "Z",
+        }
+        print("[TRANSCRIPT] Stored forward_number mapping", {
+            "forward_number": forward_number,
+            "call_id": call_id,
+            "number": number,
         })
-        LAST_ACTIVE_BY_NUMBER[number] = call_id
 
     CALL_LOGS[call_id]["events"].append({
         "timestamp": datetime.utcnow().isoformat()+"Z",
