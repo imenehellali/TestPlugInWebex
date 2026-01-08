@@ -493,7 +493,7 @@ def list_recordings_by_session():
     r = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings",
         params={"callSessionId": session_id},
-        headers=_bearer(),
+        headers={"Authorization": f"Bearer {_bearer()}"},
         timeout=20,
     )
     return (r.text, r.status_code, {"Content-Type": "application/json"})
@@ -502,7 +502,9 @@ def list_recordings_by_session():
 @app.get("/api/recordings/<rec_id>")
 def recordings_details(rec_id):
     r = requests.get(
-        f"{WEBEX_BASE_API}/converged/recordings/{rec_id}", headers=_bearer(), timeout=20
+        f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+        headers={"Authorization": f"Bearer {_bearer()}"},
+        timeout=20,
     )
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
@@ -511,7 +513,9 @@ def recordings_details(rec_id):
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
     info = requests.get(
-        f"{WEBEX_BASE_API}/converged/recordings/{rec_id}", headers=_bearer(), timeout=20
+        f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+        headers={"Authorization": f"Bearer {_bearer()}"},
+        timeout=20,
     ).json()
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
@@ -529,7 +533,9 @@ def recordings_download(rec_id):
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
     info = requests.get(
-        f"{WEBEX_BASE_API}/converged/recordings/{rec_id}", headers=_bearer(), timeout=20
+        f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+        headers={"Authorization": f"Bearer {_bearer()}"},
+        timeout=20,
     ).json()
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
