@@ -31,71 +31,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # in-memory store; persisted on call end
 CALL_LOGS = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
+CALL_HISTORY = []  # [{name, number, time, type, callSessionId, ...}]
 
-<<<<<<< Updated upstream
-=======
-# Helper function to get bearer token
 def _bearer():
     """Get the Webex bearer token from environment or default"""
     return WEBEX_BEARER
-
-# Load AUTH_TOKENS from disk on startup
-def load_auth_tokens():
-    """Load all saved auth tokens from disk into memory"""
-    print("[STARTUP] Loading auth tokens from disk...")
-    count = 0
-    for auth_file in AUTH_DIR.glob("*.json"):
-        try:
-            with open(auth_file, "r") as f:
-                auth_data = json.load(f)
-                # Token IS the Webex UID (target_id)
-                token = auth_data["target_id"]
-                AUTH_TOKENS[token] = auth_data
-                count += 1
-                print(f"[STARTUP] Loaded token for {auth_data.get('target_name', 'Unknown')}: {token[:20]}...")
-        except Exception as e:
-            print(f"[STARTUP] Error loading {auth_file}: {e}")
-    print(f"[STARTUP] Loaded {count} auth tokens from disk")
-
-# Load tokens on startup
-load_auth_tokens()
-
-# Socket.IO event handlers
-@socketio.on('connect')
-def handle_connect():
-    print(f'Client connected: {request.sid}')
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f'Client disconnected: {request.sid}')
-
-@socketio.on("join")
-def handle_join(data):
-    from flask_socketio import join_room
-
-    user_id = (data or {}).get("user_id")
-    group_ids = (data or {}).get("group_ids") or []
-
-    if user_id:
-        join_room(user_id)
-        print(f"User {user_id} joined room")
-
-    # allow joining multiple group rooms
-    for gid in group_ids:
-        if gid and isinstance(gid, str):
-            join_room(gid)
-            print(f"User {user_id or request.sid} joined group room {gid}")
-
-
-@socketio.on('leave')
-def handle_leave(data):
-    user_id = data.get('user_id')
-    if user_id:
-        from flask_socketio import leave_room
-        leave_room(user_id)
-        print(f'User {user_id} left room')
-
->>>>>>> Stashed changes
 @app.after_request
 def set_headers(resp):
     csp = "frame-ancestors 'self' https://*.webex.com https://*.webexcontent.com https://*.cisco.com"
@@ -288,18 +228,57 @@ def ingest():
 
     return jsonify({"error": "nothing ingested"}), 400
 
-def _bearer():
-    # for dev: valid for each 12h to modify each log in
-    return os.environ.get("WEBEX_USER_TOKEN", "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+def _store_history_payload(payload):
+    if payload is None:
+        return 0
+    if isinstance(payload, dict):
+        if "items" in payload:
+            items = payload.get("items") or []
+        elif "item" in payload:
+            items = [payload.get("item")]
+        else:
+            items = [payload]
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        return 0
+
+    normalized = [item for item in items if isinstance(item, dict)]
+    CALL_HISTORY.extend(normalized)
+    return len(normalized)
+
+@app.post("/api/webhooks/calls/history")
+def webhook_calls_history():
+    payload = request.get_json(silent=True)
+    stored = _store_history_payload(payload)
+    if not stored:
+        return jsonify({"error": "payload must contain item or items"}), 400
+    return jsonify({"ok": True, "stored": stored}), 200
 
 @app.route("/api/calls/history")
 def api_calls_history():
-    r = requests.get(
-        f"{WEBEX_BASE}/v1/telephony/calls/history",
-        headers={"Authorization": f"Bearer {_bearer()}"},
-        timeout=10,
-    )
-    return (r.text, r.status_code, {"Content-Type": "application/json"})
+    if CALL_HISTORY:
+        return jsonify({"items": CALL_HISTORY})
+
+    try:
+        r = requests.get(
+            f"{WEBEX_BASE}/v1/telephony/calls/history",
+            headers={"Authorization": f"Bearer {_bearer()}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return jsonify({"items": []})
+
+    if isinstance(data, list):
+        return jsonify({"items": data})
+    if isinstance(data, dict):
+        if "items" in data:
+            return jsonify({"items": data.get("items") or []})
+        if "item" in data:
+            return jsonify({"items": [data.get("item")]})
+    return jsonify({"items": []})
 
 @app.route("/api/cdr_feed")
 def api_cdr_feed():
@@ -344,20 +323,20 @@ def list_recordings_by_session():
     # Converged Recordings supports filtering by callSessionId via query "callSessionId"
     r = requests.get(f"{WEBEX_BASE_API}/converged/recordings",
                      params={"callSessionId": session_id},
-                     headers=_bearer(), timeout=20)
+                     headers=_wbx_headers(), timeout=20)
     return (r.text, r.status_code, {"Content-Type":"application/json"})
 
 @app.get("/api/recordings/<rec_id>")
 def recordings_details(rec_id):
     r = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                     headers=_bearer(), timeout=20)
+                     headers=_wbx_headers(), timeout=20)
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
 @app.get("/api/recordings/<rec_id>/download")
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_bearer(), timeout=20).json()
+                        headers=_wbx_headers(), timeout=20).json()
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -372,7 +351,7 @@ def recordings_download(rec_id):
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_bearer(), timeout=20).json()
+                        headers=_wbx_headers(), timeout=20).json()
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
