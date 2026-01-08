@@ -1,0 +1,316 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Live Call</title>
+  <style>
+    body { background:#0e1623; color:#e6eefb; font-family:system-ui,Arial; margin:0; padding:20px }
+    .card { max-width:640px; margin:40px auto; background:#132032; border-radius:14px; padding:20px; box-shadow:0 8px 24px rgba(0,0,0,.35) }
+    .caller { font-size:20px; color:#8ad9ab }
+    .state { font-size:14px; color:#96c4e9; margin-bottom:10px }
+    .tx { background:#0b1020; border-radius:10px; padding:12px; min-height:180px; white-space:pre-wrap; overflow:auto }
+    .empty { display:flex; flex-direction:column; align-items:center; gap:12px; color:#9aa7bd; padding:60px 0 }
+    .pulse { width:96px; height:96px; animation: float 3s ease-in-out infinite }
+    @keyframes float { 0%{ transform:translateY(0) rotate(0) } 50%{ transform:translateY(-8px) rotate(5deg) } 100%{ transform:translateY(0) rotate(0) } }
+    .bar { height:6px; background:#1f334d; border-radius:999px; overflow:hidden; margin-top:10px }
+    .bar > div { height:100%; width:35%; background:#4fbcbc; animation: load 2.6s infinite }
+    @keyframes load { 0%{transform:translateX(-35%)} 50%{transform:translateX(70%)} 100%{transform:translateX(-35%)} }
+  </style>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <div class="card" id="live">
+    <div class="caller" id="caller"></div>
+    <div class="state" id="state"></div>
+    <div class="tx" id="tx"></div>
+  </div>
+  <div class="card empty" id="idle" style="display:none">
+    <img class="pulse" src="/static/bot.png" alt="AI bot">
+    <div>No active calls. The AI is calm.</div>
+    <div class="bar"><div></div></div>
+  </div>
+
+  <script>
+    const callerEl = document.getElementById('caller');
+    const stateEl  = document.getElementById('state');
+    const txEl     = document.getElementById('tx');
+    const live     = document.getElementById('live');
+    const idle     = document.getElementById('idle');
+
+    const socket = io();
+    const active = new Set();
+
+    function setIdle(showIdle) {
+      live.style.display = showIdle ? 'none' : 'block';
+      idle.style.display = showIdle ? 'block' : 'none';
+    }
+
+    socket.on('call_event', async p => {
+      if (p.state === 'ended') {
+        active.delete(p.call_id);
+        setIdle(active.size === 0);
+        return;
+      }
+
+      (async () => {
+        console.log('[INIT] Creating Webex Application instance...');
+        const config = {
+          logs: {
+            logLevel: 3, // INFO: 0, WARN: 1, ERROR: 2, SILENT: 3
+          },
+        };
+        webexApp = new window.webex.Application(config);
+
+        console.log('[INIT] Waiting for SDK to be ready...');
+        await webexApp.onReady();
+      console.log('[INIT] SDK is ready!');
+
+      console.log('[INIT] Starting to listen for events...');
+      await webexApp.listen();
+      console.log('[INIT] Now listening for events!');
+
+      // Get user info directly from SDK - NO API call needed!
+      currentUserInfo = webexApp.application.states.user;
+      currentUserId = currentUserInfo.id;
+      document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      console.log('[INIT] User:', currentUserInfo.displayName, 'ID:', currentUserId);
+
+      initSocket();
+
+      // CORRECT SDK v2 SYNTAX: Listen to sidebar:callStateChanged
+      console.log('[INIT] Registering call event listener...');
+      console.log('[INIT] Available SDK properties:', Object.keys(webexApp));
+      console.log('[INIT] SDK application states:', webexApp.application?.states);
+
+      // Log ALL events to see what's being fired
+      const originalOn = webexApp.on.bind(webexApp);
+      webexApp.on = function(event, handler) {
+        console.log(`[INIT] Registering listener for event: "${event}"`);
+        return originalOn(event, function(...args) {
+          console.log(`[EVENT] 🔔 "${event}" fired with args:`, args);
+          return handler(...args);
+        });
+      };
+
+      webexApp.on('sidebar:callStateChanged', (call) => {
+        console.log('[EVENT] ===== sidebar:callStateChanged FIRED =====');
+        console.log('[EVENT] Call data:', JSON.stringify(call, null, 2));
+        handleCallStateChange(call);
+      });
+
+      // Try registering for ALL possible call-related events
+      console.log('[INIT] Trying additional event listeners...');
+      ['application:callStateChanged', 'call:stateChanged', 'calling:callStateChanged'].forEach(eventName => {
+        try {
+          webexApp.on(eventName, (data) => {
+            console.log(`[EVENT] 🔔 ${eventName} fired:`, data);
+          });
+        } catch (e) {
+          console.log(`[INIT] Could not register ${eventName}:`, e.message);
+        }
+      });
+
+      console.log('[INIT] Call event listener registered successfully!');
+      console.log('[INIT] ===== SDK FULLY INITIALIZED =====');
+        console.log('[INIT] Make a call in Webex to test call detection');
+        console.log('[INIT] Watching for ANY events...');
+      })();
+    });
+
+    async function tryInitializeWithoutSDK() {
+      // SDK not available - show error, no fallback
+      console.error('[INIT] Cannot run without SDK - this is an embedded app');
+      document.getElementById('liveHeader').textContent = '⚠️ SDK Required';
+      document.getElementById('liveSub').textContent = 'This app requires Webex SDK and cannot run in a regular browser';
+    }
+
+    function handleCallStateChange(call) {
+      const state = (call?.state || 'unknown').toLowerCase();
+      const remoteNumber = getRemoteNumber(call);
+      const displayName = call.remoteParticipants?.[0]?.name || call.caller?.name || call.displayName || '';
+
+      console.log('[CALL] State changed:', { state, remoteNumber, displayName });
+
+      // Handle call end
+      if (state === 'ended' || state === 'completed' || state === 'disconnected') {
+        console.log('[CALL] Call ended, resetting view');
+        resetLiveView();
+        return;
+      }
+
+      // For ANY active call, show caller immediately
+      if (state === 'ringing' || state === 'connected' || state === 'active') {
+        const callerLabel = remoteNumber || displayName || 'Unknown Caller';
+        console.log('[CALL] Showing caller:', callerLabel);
+
+        // Exit idle mode
+        setIdle(false);
+
+        // Show caller number
+        document.getElementById('liveHeader').textContent = callerLabel;
+        document.getElementById('liveSub').textContent = `Call ${state}`;
+
+        // Show equalizer when connected
+        if (state === 'connected' || state === 'active') {
+          showEqualizer(true);
+
+          // Check if we have AI summary from socket
+          if (currentCall && currentCall.call_data) {
+            console.log('[CALL] AI summary available, showing structured panel');
+            displayCallSummary(currentCall.call_data);
+          } else {
+            console.log('[CALL] No AI summary, showing placeholder');
+            showNoSummaryPlaceholder();
+          }
+        }
+      }
+    }
+
+    function getLocalNumber(call = {}) {
+      return (
+        call.localParticipant?.phoneNumber ||
+        call.localParticipant?.callerID ||
+        call.to?.phoneNumber || call.to || ''
+      );
+    }
+
+    function getRemoteNumber(call = {}) {
+      const rps = Array.isArray(call.remoteParticipants)
+        ? call.remoteParticipants
+        : (call.remoteParticipant ? [call.remoteParticipant] : []);
+      const local = getLocalNumber(call);
+
+      const rp = rps.find(p => {
+        const n = p?.phoneNumber || p?.callerID || '';
+        return n && n !== local;
+      });
+
+      const candidate =
+        rp?.phoneNumber ||
+        rp?.callerID ||
+        call.from?.phoneNumber || call.from ||
+        call.caller?.phoneNumber || call.caller?.callerID ||
+        call.displayName || '';
+
+      return candidate && candidate !== local ? String(candidate).trim() : '';
+    }
+
+    function initSocket() {
+      console.log('[SOCKET] Connecting to Socket.IO...');
+      const storedGroupIds = (() => {
+  try { return JSON.parse(localStorage.getItem('placetel_group_ids') || '[]'); }
+  catch { return []; }
+})();
+      socket = io();
+
+      socket.on('connect', () => {
+        console.log('[SOCKET] Connected! Socket ID:', socket.id);
+        console.log('[SOCKET] Joining room for user:', currentUserId);
+// V2 rooms (tenant + forward numbers) are optional and stored by Authorization page
+        const v2Tenant = (localStorage.getItem('placetel_v2_admin_tenant') || '').trim();
+        const v2ForwardNumbers = (() => {
+          try { return JSON.parse(localStorage.getItem('placetel_v2_forward_numbers') || '[]'); }
+          catch { return []; }
+        })();
+        const v2Rooms = (v2Tenant && Array.isArray(v2ForwardNumbers))
+          ? v2ForwardNumbers.filter(Boolean).map(n => `v2:${v2Tenant}:${n}`)
+          : [];
+
+        socket.emit('join', { user_id: currentUserId, group_ids: storedGroupIds, v2_rooms: v2Rooms });});
+
+      socket.on('disconnect', () => {
+        console.log('[SOCKET] Disconnected!');
+      });
+
+      socket.on('error', (error) => {
+        console.error('[SOCKET] Error:', error);
+      });
+
+      socket.on('incoming_call', (data) => {
+        console.log('[SOCKET] incoming_call event received:', data);
+        handleIncomingCall(data);
+      });
+
+      socket.on('call_assigned', (data) => {
+        console.log('[SOCKET] call_assigned event received:', data);
+        handleCallAssigned(data);
+      });
+
+      socket.on('call_removed', (data) => {
+        console.log('[SOCKET] call_removed event received:', data);
+        handleCallRemoved(data);
+      });
+
+      socket.on('call_event', (data) => {
+        console.log('[SOCKET] call_event event received:', data);
+        handleCallEvent(data);
+      });
+
+      console.log('[SOCKET] All event listeners registered');
+    }
+
+    function handleIncomingCall(data) {
+      console.log('[SOCKET] AI Summary received:', data);
+
+      // Store AI summary data
+      currentCall = data;
+
+      // If user is currently in a call, show the summary immediately
+      const isInCall = !document.getElementById('liveIdle').classList.contains('hidden') === false;
+
+      if (isInCall && data.call_data) {
+        console.log('[SOCKET] User in call, displaying AI summary');
+        displayCallSummary(data.call_data);
+        showEqualizer(true);
+      } else if (data.show_summary === false && data.target_type === 'group') {
+        // Group call - show pickup button
+        console.log('[SOCKET] Group call, showing pickup button');
+        document.getElementById('liveTx').classList.add('hidden');
+        document.getElementById('pickupContainer').classList.remove('hidden');
+      }
+    }
+
+    function handleCallAssigned(data) {
+      console.log('Call assigned:', data);
+      currentCall = data;
+
+      displayCallSummary(data.call_data);
+      showEqualizer(true);
+      document.getElementById('pickupContainer').classList.add('hidden');
+      document.getElementById('liveSub').textContent = 'Connected';
+    }
+
+    function handleCallRemoved(data) {
+      console.log('Call removed:', data);
+      if (currentCall && currentCall.call_id === data.call_id) {
+        resetLiveView();
+      }
+    }
+
+    function handleCallEvent(data) {
+      console.log('[HANDLER] handleCallEvent called with:', data);
+      const state = (data.state || '').toLowerCase();
+      console.log('[HANDLER] Call state:', state);
+
+      // Handle call end
+      if (state === 'ended' || state === 'completed' || state === 'hangup') {
+        console.log('[HANDLER] Call ended, resetting view');
+        resetLiveView();
+        return;
+      }
+
+      // For ANY active call, exit idle mode and show caller info
+      console.log('[HANDLER] Exiting idle mode');
+      setIdle(false);
+      callerEl.textContent = p.caller || 'Unknown';
+      stateEl.textContent  = `State: ${p.state}`;
+      if (p.transcript) {
+        txEl.textContent = (txEl.textContent ? (txEl.textContent + '\n') : '') + p.transcript;
+      }
+    }
+
+    // start idle visual until first call arrives
+    setIdle(true);
+  </script>
+</body>
+</html>
