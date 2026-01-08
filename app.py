@@ -6,7 +6,7 @@ from summarize import summarize_text
 from flask import Flask, redirect, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO
 from datetime import datetime
-import os, uuid, json, pathlib, shutil, io, requests
+import os, uuid, json, pathlib, shutil, io, requests, re
 
 WEBEX_BASE = "https://webexapis.com"
 WEBEX_BASE_API = "https://webexapis.com/v1"
@@ -291,6 +291,69 @@ def ingest():
 def _bearer():
     # for dev: valid for each 12h to modify each log in
     return os.environ.get("WEBEX_USER_TOKEN", "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba")
+
+_BEARER_TENANT_PATTERN = re.compile(
+    r"^(?P<secret>.+?)(?P<tenant>[0-9a-fA-F]{8}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{12})$"
+)
+
+def _parse_bearer_header(auth_header: str):
+    if not auth_header:
+        return None, None
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "bearer":
+        return None, None
+    token = token.strip()
+    if not token:
+        return None, None
+    match = _BEARER_TENANT_PATTERN.match(token)
+    if match:
+        return match.group("secret"), match.group("tenant")
+    return token, None
+
+@app.post("/api/placetel/v2/transcripts")
+def placetel_transcripts():
+    """
+    Body: { "forward_number": "+49...", "caller": "...", "summary": "...", "admin_tenant": "..."? }
+    admin_tenant is optional when provided via bearer token.
+    """
+    data = request.get_json(force=True)
+    secret, bearer_tenant = _parse_bearer_header(request.headers.get("Authorization", ""))
+    if not secret:
+        return jsonify({"error": "invalid bearer"}), 403
+
+    explicit_admin_tenant = data.get("admin_tenant") if "admin_tenant" in data else None
+    if bearer_tenant and explicit_admin_tenant and explicit_admin_tenant != bearer_tenant:
+        return jsonify({"error": "admin_tenant mismatch"}), 403
+
+    admin_tenant = bearer_tenant or explicit_admin_tenant
+    if not admin_tenant:
+        return jsonify({"error": "admin_tenant required"}), 403
+
+    forward_number = (data.get("forward_number") or "").strip()
+    caller = (data.get("caller") or "").strip()
+    summary = (data.get("summary") or "").strip()
+    missing = [name for name, value in (
+        ("forward_number", forward_number),
+        ("caller", caller),
+        ("summary", summary),
+    ) if not value]
+    if missing:
+        return jsonify({"error": "missing required fields", "fields": missing}), 400
+
+    payload = {
+        "forward_number": forward_number,
+        "caller": caller,
+        "summary": summary,
+        "admin_tenant": admin_tenant,
+    }
+    socketio.emit(
+        "incoming_call",
+        {"call_data": payload, "target_type": "tenant", "target_id": admin_tenant},
+        room=admin_tenant,
+    )
+    return jsonify({"ok": True, "admin_tenant": admin_tenant}), 200
 
 @app.route("/api/calls/history")
 def api_calls_history():
