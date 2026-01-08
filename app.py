@@ -27,6 +27,7 @@ WEBEX_BEARER = os.environ.get(
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
+PLACETEL_SECRET_KEYS = os.environ.get("PLACETEL_SECRET_KEYS", "").strip()
 ##### ------------------------------------------------------
 
 LAST_ACTIVE_BY_NUMBER: dict[str, str] = {}  # { "+4922...": "call_id" }
@@ -422,15 +423,29 @@ def _v2_expected_token(admin_tenant: str) -> str:
     return f"{PLACETEL_SECRET_KEY}{admin_tenant}" if admin_tenant else ""
 
 
+def _allowed_secret_keys() -> list[str]:
+    if PLACETEL_SECRET_KEYS:
+        return [k.strip() for k in PLACETEL_SECRET_KEYS.split(",") if k.strip()]
+    return [PLACETEL_SECRET_KEY]
+
+
+def _match_secret_key(token: str, admin_tenant: str) -> bool:
+    if not admin_tenant or not token:
+        return False
+    for secret in _allowed_secret_keys():
+        if len(secret) != 16:
+            continue
+        if token == f"{secret}{admin_tenant}":
+            return True
+    return False
+
+
 def _require_v2_bearer(admin_tenant: str):
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return False
     token = auth_header.split(" ", 1)[1].strip()
-    expected = _v2_expected_token(admin_tenant)
-    if not expected:
-        return False
-    return token == expected
+    return _match_secret_key(token, admin_tenant)
 
 
 @app.route("/api/calls/history")
@@ -688,8 +703,8 @@ def placetel_v2_transcripts():
         return jsonify({"error": "forward_number required"}), 400
     if not admin_tenant:
         return jsonify({"error": "admin_tenant required"}), 400
-    if len(PLACETEL_SECRET_KEY) != 16:
-        return jsonify({"error": "PLACETEL_SECRET_KEY must be 16 characters"}), 500
+    if not any(len(key) == 16 for key in _allowed_secret_keys()):
+        return jsonify({"error": "PLACETEL_SECRET_KEY(S) must include a 16 character key"}), 500
     if not _require_v2_bearer(admin_tenant):
         return jsonify({"error": "invalid bearer"}), 403
 
