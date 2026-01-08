@@ -23,6 +23,10 @@
     await app.onReady();
     await app.listen();
 
+    const userInfo = app.application?.states?.user || {};
+    window.webexUserId = userInfo.id || null;
+    window.webexUserInfo = userInfo;
+
     const lastKey = new Map(); // call.id -> "state|remote|local|name"
 
     function getLocalNumber(call = {}) {
@@ -284,6 +288,16 @@
     setIdle(true);
 
     const socket = io();
+    socket.on('connect', () => {
+      const userId = window.webexUserId;
+      const groupIds = (() => {
+        try { return JSON.parse(localStorage.getItem('placetel_group_ids') || '[]'); }
+        catch { return []; }
+      })();
+      if (userId || groupIds.length) {
+        socket.emit('join', { user_id: userId, group_ids: groupIds });
+      }
+    });
 
     socket.on('call_event', async (p) => {
       const state = (p.state || '').toLowerCase();

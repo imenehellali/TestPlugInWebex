@@ -9,6 +9,11 @@
     /* Match card title/description to use same fonts as rest of app */
     .auth-title { color: #68dbc0; font-weight: 600; margin-bottom: 6px; }
     .auth-desc { color: #9aa7bd; font-size: 14px; margin-bottom: 16px; line-height: 1.5; }
+    .version-toggle { display: flex; gap: 12px; flex-wrap: wrap; }
+    .version-toggle .btn-gen { min-width: 140px; }
+    .btn-version--active { outline: 2px solid rgba(24,226,153,0.6); }
+    .version-hint { font-size: 12px; color: #9aa7bd; margin-top: 6px; }
+    .v2-only { display: none; }
 
     /* User row layout */
     .user-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -104,10 +109,21 @@
     <div class="card">
       <div class="auth-title">Authorization Management</div>
       <div class="auth-desc">Generate secure POST API endpoints for users and groups to receive AI call summaries.</div>
+      <div class="auth-title">API Version</div>
+      <div class="auth-desc">Choose which resolver version to run when generating endpoints.</div>
+      <div class="version-toggle">
+        <button id="btnV1" class="btn-gen btn-version--active" type="button">V1</button>
+        <button id="btnV2" class="btn-gen" type="button">V2</button>
+      </div>
+      <div id="versionHint" class="version-hint">V1: no bearer, auth is Webex UID.</div>
     </div>
 
     <!-- My Own Endpoint - Simple Card -->
     <div class="card" style="text-align:center;">
+  <div id="v2AdminTenantRow" class="form-row v2-only" style="text-align:left;">
+    <label class="form-lbl" for="adminTenant">Admin Tenant Number</label>
+    <input class="form-in" id="adminTenant" placeholder="e.g. 25063011173">
+  </div>
   <button id="btnGenMyself"
           class="btn-gen oj-sm-margin-0 oj-sm-margin-horizontal-auto"
           style="display:inline-block;">
@@ -123,6 +139,11 @@
 <div class="card oj-sm-padding-3x">
   <div class="auth-title">Group Endpoint</div>
   <div class="auth-desc">Generate a POST API endpoint for a group. Members who joined the group ID will see it (first pickup wins).</div>
+
+  <div class="form-row v2-only" id="v2AdminTenantGroup" style="display:none;">
+    <label class="form-lbl" for="groupAdminTenant">Admin Tenant Number (V2)</label>
+    <input class="form-in" id="groupAdminTenant" placeholder="e.g. 25063011173">
+  </div>
 
   <div class="form-row">
     <label class="form-lbl" for="groupId">Group ID</label>
@@ -165,6 +186,7 @@
     let currentUserId = null;
     let currentUserInfo = null;
     let isAdmin = false;
+    let apiVersion = 'v1';
 
     (async function initWebex() {
       if (!window.webex || !window.webex.Application) {
@@ -187,6 +209,33 @@
       document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
       console.log('[AUTH] User:', currentUserInfo.displayName, 'ID:', currentUserId);
 
+      const v1Button = document.getElementById('btnV1');
+      const v2Button = document.getElementById('btnV2');
+      const versionHint = document.getElementById('versionHint');
+      const v2OnlyRows = document.querySelectorAll('.v2-only');
+
+      function setVersion(next) {
+        apiVersion = next;
+        v1Button.classList.toggle('btn-version--active', next === 'v1');
+        v2Button.classList.toggle('btn-version--active', next === 'v2');
+        v2OnlyRows.forEach(row => {
+          row.style.display = next === 'v2' ? 'block' : 'none';
+        });
+        if (next === 'v2') {
+          versionHint.textContent = 'V2: bearer auth with secret key + admin tenant, plus forward_number.';
+        } else {
+          versionHint.textContent = 'V1: no bearer, auth is Webex UID.';
+        }
+      }
+
+      v1Button.addEventListener('click', () => setVersion('v1'));
+      v2Button.addEventListener('click', () => setVersion('v2'));
+      setVersion('v1');
+
+      function getAuthEndpoint() {
+        return apiVersion === 'v2' ? '/api/auth/v2/generate' : '/api/auth/generate';
+      }
+
       // Setup "Generate My Endpoint" button
       document.getElementById('btnGenMyself').addEventListener('click', async () => {
           console.log('[AUTH] Generate My Endpoint clicked');
@@ -195,10 +244,16 @@
 
           const btn = document.getElementById('btnGenMyself');
           const urlDisplay = document.getElementById('myUrl');
+          const adminTenant = (document.getElementById('adminTenant')?.value || '').trim();
 
           if (!currentUserId) {
             console.error('[AUTH] currentUserId is not set!');
             urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: User ID not available. Please reload the page.</div>';
+            urlDisplay.style.display = 'block';
+            return;
+          }
+          if (apiVersion === 'v2' && !adminTenant) {
+            urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: Admin tenant number is required for V2.</div>';
             urlDisplay.style.display = 'block';
             return;
           }
@@ -213,10 +268,13 @@
               target_type: 'user',
               target_name: currentUserInfo?.displayName || 'Me'
             };
+            if (apiVersion === 'v2') {
+              payload.admin_tenant = adminTenant;
+            }
 
             console.log('[AUTH] Sending request:', payload);
 
-            const response = await fetch('/api/auth/generate', {
+            const response = await fetch(getAuthEndpoint(), {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify(payload)
@@ -240,7 +298,7 @@
             urlDisplay.innerHTML = `
               <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">✓ Endpoint Generated Successfully</div>
               <div style="background: rgba(24, 226, 153, 0.1); padding: 12px; border-radius: 6px; border: 1px solid #18e299;">
-                <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Your POST API URL:</div>
+                <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Your POST API URL (${apiVersion.toUpperCase()}):</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                   <input type="text" value="${data.post_url}" readonly id="generatedUrl"
                     style="flex: 1; padding: 10px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
@@ -267,12 +325,18 @@
       document.getElementById('btnGenGroup').addEventListener('click', async () => {
   const groupId = (document.getElementById('groupId').value || '').trim();
   const groupName = (document.getElementById('groupName').value || '').trim();
+  const groupAdminTenant = (document.getElementById('groupAdminTenant')?.value || '').trim();
 
   const btn = document.getElementById('btnGenGroup');
   const urlDisplay = document.getElementById('groupUrl');
 
   if (!groupId) {
     urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: Group ID is required.</div>';
+    urlDisplay.style.display = 'block';
+    return;
+  }
+  if (apiVersion === 'v2' && !groupAdminTenant) {
+    urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: Admin tenant number is required for V2.</div>';
     urlDisplay.style.display = 'block';
     return;
   }
@@ -287,8 +351,11 @@
       target_type: 'group',
       target_name: groupName || 'Group'
     };
+    if (apiVersion === 'v2') {
+      payload.admin_tenant = groupAdminTenant;
+    }
 
-    const response = await fetch('/api/auth/generate', {
+    const response = await fetch(getAuthEndpoint(), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -315,7 +382,7 @@
     urlDisplay.innerHTML = `
       <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">Endpoint Generated Successfully</div>
       <div style="background: rgba(24, 226, 153, 0.1); padding: 12px; border-radius: 6px; border: 1px solid #18e299;">
-        <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Group POST API URL:</div>
+        <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Group POST API URL (${apiVersion.toUpperCase()}):</div>
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="text" value="${data.post_url}" readonly id="generatedGroupUrl"
             style="flex: 1; padding: 10px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
