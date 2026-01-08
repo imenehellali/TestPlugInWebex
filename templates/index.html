@@ -123,6 +123,7 @@
   <div class="topbar">
     <button id="tabLive" class="tab tab--active">Live</button>
     <button id="tabHist" class="tab">History</button>
+    <button id="tabAuth" class="tab">Authorization</button>
   </div>
 
   <div class="container">
@@ -169,24 +170,34 @@
     // Tabs
     const tabLive = document.getElementById('tabLive');
     const tabHist = document.getElementById('tabHist');
+    const tabAuth = document.getElementById('tabAuth');
     const viewLive = document.getElementById('viewLive');
     const viewHist = document.getElementById('viewHist');
 
     function showLive() {
       tabLive.classList.add('tab--active');
       tabHist.classList.remove('tab--active');
+      tabAuth.classList.remove('tab--active');
       viewLive.classList.remove('hidden');
       viewHist.classList.add('hidden');
     }
     function showHist() {
       tabHist.classList.add('tab--active');
       tabLive.classList.remove('tab--active');
+      tabAuth.classList.remove('tab--active');
       viewHist.classList.remove('hidden');
       viewLive.classList.add('hidden');
       loadHistory();
     }
+    function goAuthorization() {
+      tabAuth.classList.add('tab--active');
+      tabLive.classList.remove('tab--active');
+      tabHist.classList.remove('tab--active');
+      window.location.href = '/authorization';
+    }
     tabLive.addEventListener('click', showLive);
     tabHist.addEventListener('click', showHist);
+    tabAuth.addEventListener('click', goAuthorization);
 
     // ---------- Live view ----------
     async function prettyCaller(raw) {
