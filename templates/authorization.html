@@ -1,0 +1,393 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Placetel AI – Authorization</title>
+  <script src="https://unpkg.com/@webex/embedded-app-sdk@2"></script>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    /* Match card title/description to use same fonts as rest of app */
+    .auth-title { color: #68dbc0; font-weight: 600; margin-bottom: 6px; }
+    .auth-desc { color: #9aa7bd; font-size: 14px; margin-bottom: 16px; line-height: 1.5; }
+
+    /* User row layout */
+    .user-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .user-info { flex: 1; min-width: 0; }
+    .user-name { font-weight: 600; color: #e6eefb; }
+    .user-detail { font-size: 12px; color: #9aa7bd; margin-top: 2px; }
+
+    /* Beautiful gradient button (keep as is!) */
+    .btn-gen {
+      padding: 8px 16px;
+      background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%, #7b8cff 100%);
+      color: #0b1020;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(24,226,153,0.2);
+      transition: all 0.2s;
+    }
+    .btn-gen:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(24,226,153,0.3); }
+    .btn-gen:disabled { background: #1f334d; color: #9aa7bd; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* URL display */
+    .url-display {
+      margin-top: 8px;
+      padding: 8px;
+      background: rgba(24,226,153,0.08);
+      border: 1px solid rgba(24,226,153,0.25);
+      border-radius: 6px;
+      font-size: 11px;
+      color: #18e299;
+      word-break: break-all;
+      font-family: 'Courier New', monospace;
+      display: none;
+    }
+
+    /* Copy notification toast */
+    .copy-toast {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background: linear-gradient(90deg,#18e299 0%, #3ec5ff 60%);
+  color: #0b1020;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(24,226,153,0.4);
+  /* z-index removed to satisfy oj-css-bp-zindex */
+  animation: slideIn 0.3s ease-out;
+}
+    @keyframes slideIn {
+      from { transform: translateX(120%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* External user form - no extra background */
+    .form-row { margin-bottom: 12px; }
+    .form-lbl {
+      display: block;
+      font-weight: 600;
+      color: #e6eefb;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    .form-in {
+      width: 100%;
+      padding: 10px;
+      background: #132032;
+      border: 1px solid #1f334d;
+      border-radius: 6px;
+      color: #e6eefb;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .form-in:focus {
+      outline: none;
+      border-color: #18e299;
+      box-shadow: 0 0 0 3px rgba(24,226,153,0.1);
+    }
+  </style>
+</head>
+
+<body class="page">
+  <div class="topbar">
+    <button id="tabLive" class="tab">Live</button>
+    <button id="tabHist" class="tab">History</button>
+    <button id="tabAuth" class="tab tab--active">Authorization</button>
+    <span id="userInfo" style="margin-left: auto; font-size: 12px; color: #9aa7bd;"></span>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <div class="auth-title">Authorization Management</div>
+      <div class="auth-desc">Generate secure POST API endpoints for users and groups to receive AI call summaries.</div>
+    </div>
+
+    <!-- My Own Endpoint - Simple Card -->
+    <div class="card" style="text-align:center;">
+  <button id="btnGenMyself"
+          class="btn-gen oj-sm-margin-0 oj-sm-margin-horizontal-auto"
+          style="display:inline-block;">
+    Generate My Own Endpoint
+  </button>
+
+  <div id="myUrl"
+       class="url-display oj-sm-margin-top-2x">
+  </div>
+  
+</div>
+<!-- Group Endpoint -->
+<div class="card oj-sm-padding-3x">
+  <div class="auth-title">Group Endpoint</div>
+  <div class="auth-desc">Generate a POST API endpoint for a group. Members who joined the group ID will see it (first pickup wins).</div>
+
+  <div class="form-row">
+    <label class="form-lbl" for="groupId">Group ID</label>
+    <input class="form-in" id="groupId" placeholder="Paste the group id (room id you want to broadcast to)">
+  </div>
+
+  <div class="form-row">
+    <label class="form-lbl" for="groupName">Group Name (optional)</label>
+    <input class="form-in" id="groupName" placeholder="e.g. Support L1">
+  </div>
+
+  <button id="btnGenGroup" class="btn-gen">Generate Group Endpoint</button>
+
+  <div id="groupUrl" class="url-display oj-sm-margin-top-2x"></div>
+
+  <div class="auth-desc auth-desc-margin"> To make members receive group calls, store the Group ID in their browser: 
+<span class="code-inline">
+  localStorage.setItem('placetel_group_ids', JSON.stringify(['&lt;GROUP_ID&gt;']))
+</span>
+  </div>
+</div>
+
+
+    <!-- SDK-ONLY MODE: Only personal endpoint generation -->
+    <!-- Admin features (listing users/groups) removed - use Integration API separately if needed -->
+
+    <div class="card oj-sm-padding-3x"
+     style="background:rgba(104,219,192,0.05);border:1px solid rgba(104,219,192,0.2);">
+  <div style="font-size:14px;color:#9aa7bd;line-height:1.6;">
+    <strong style="color:#68dbc0;">SDK-Only Mode</strong><br>
+    This embedded app uses only the Webex SDK. You can generate your own endpoint above.
+    To manage endpoints for other users or groups, use the Integration API separately.
+  </div>
+</div>
+
+  </div>
+
+  <script>
+    let webexApp = null;
+    let currentUserId = null;
+    let currentUserInfo = null;
+    let isAdmin = false;
+
+    (async function initWebex() {
+      if (!window.webex || !window.webex.Application) {
+        console.error('Webex SDK v2 not loaded');
+        return;
+      }
+
+      const config = {
+        logs: {
+          logLevel: 3, // INFO: 0, WARN: 1, ERROR: 2, SILENT: 3
+        },
+      };
+      webexApp = new window.webex.Application(config);
+      await webexApp.onReady();
+      await webexApp.listen();
+
+      // Get user info directly from SDK - NO API call needed!
+      currentUserInfo = webexApp.application.states.user;
+      currentUserId = currentUserInfo.id;
+      document.getElementById('userInfo').textContent = currentUserInfo.displayName || currentUserInfo.emails?.[0] || 'User';
+      console.log('[AUTH] User:', currentUserInfo.displayName, 'ID:', currentUserId);
+
+      // Setup "Generate My Endpoint" button
+      document.getElementById('btnGenMyself').addEventListener('click', async () => {
+          console.log('[AUTH] Generate My Endpoint clicked');
+          console.log('[AUTH] currentUserId:', currentUserId);
+          console.log('[AUTH] currentUserInfo:', currentUserInfo);
+
+          const btn = document.getElementById('btnGenMyself');
+          const urlDisplay = document.getElementById('myUrl');
+
+          if (!currentUserId) {
+            console.error('[AUTH] currentUserId is not set!');
+            urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: User ID not available. Please reload the page.</div>';
+            urlDisplay.style.display = 'block';
+            return;
+          }
+
+          btn.disabled = true;
+          btn.textContent = 'Generating...';
+          urlDisplay.style.display = 'none';
+
+          try {
+            const payload = {
+              target_id: currentUserId,
+              target_type: 'user',
+              target_name: currentUserInfo?.displayName || 'Me'
+            };
+
+            console.log('[AUTH] Sending request:', payload);
+
+            const response = await fetch('/api/auth/generate', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(payload)
+            });
+
+            console.log('[AUTH] Response status:', response.status);
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('[AUTH] Response error:', errorText);
+              throw new Error(`Failed: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            console.log('[AUTH] Generated endpoint:', data);
+
+            if (!data.post_url) {
+              throw new Error('No post_url in response');
+            }
+
+            urlDisplay.innerHTML = `
+              <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">✓ Endpoint Generated Successfully</div>
+              <div style="background: rgba(24, 226, 153, 0.1); padding: 12px; border-radius: 6px; border: 1px solid #18e299;">
+                <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Your POST API URL:</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="text" value="${data.post_url}" readonly id="generatedUrl"
+                    style="flex: 1; padding: 10px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
+                  <button onclick="copyGeneratedUrl()"
+                    style="padding: 10px 20px; background: #18e299; color: #0b1020; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                    📋 Copy
+                  </button>
+                </div>
+              </div>
+            `;
+            urlDisplay.style.display = 'block';
+
+            btn.disabled = false;
+            btn.textContent = 'Generate My Own Endpoint';
+          } catch (error) {
+            console.error('[AUTH] Generate error:', error);
+            btn.disabled = false;
+            btn.textContent = 'Generate My Own Endpoint';
+
+            urlDisplay.innerHTML = `<div style="color: #e78888; padding: 12px; background: rgba(231, 136, 136, 0.1); border-radius: 6px;">⚠️ Error: ${error.message}</div>`;
+            urlDisplay.style.display = 'block';
+        }
+      });
+      document.getElementById('btnGenGroup').addEventListener('click', async () => {
+  const groupId = (document.getElementById('groupId').value || '').trim();
+  const groupName = (document.getElementById('groupName').value || '').trim();
+
+  const btn = document.getElementById('btnGenGroup');
+  const urlDisplay = document.getElementById('groupUrl');
+
+  if (!groupId) {
+    urlDisplay.innerHTML = '<div style="color: #e78888; padding: 12px;">Error: Group ID is required.</div>';
+    urlDisplay.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  urlDisplay.style.display = 'none';
+
+  try {
+    const payload = {
+      target_id: groupId,
+      target_type: 'group',
+      target_name: groupName || 'Group'
+    };
+
+    const response = await fetch('/api/auth/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    if (!data.post_url) throw new Error('No post_url in response');
+
+    // Store group id locally so THIS browser receives the group calls too
+    const existing = (() => {
+      try { return JSON.parse(localStorage.getItem('placetel_group_ids') || '[]'); }
+      catch { return []; }
+    })();
+    if (!existing.includes(groupId)) {
+      existing.push(groupId);
+      localStorage.setItem('placetel_group_ids', JSON.stringify(existing));
+    }
+
+    urlDisplay.innerHTML = `
+      <div style="color: #18e299; font-weight: 600; margin-bottom: 8px;">Endpoint Generated Successfully</div>
+      <div style="background: rgba(24, 226, 153, 0.1); padding: 12px; border-radius: 6px; border: 1px solid #18e299;">
+        <div style="color: #9aa7bd; font-size: 11px; margin-bottom: 6px;">Group POST API URL:</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" value="${data.post_url}" readonly id="generatedGroupUrl"
+            style="flex: 1; padding: 10px; background: #0b1020; border: 1px solid #18e299; border-radius: 4px; color: #e6eefb; font-family: monospace; font-size: 12px;">
+          <button onclick="(function(){const i=document.getElementById('generatedGroupUrl'); i.select(); navigator.clipboard.writeText(i.value); showCopyToast('URL copied');})()"
+            style="padding: 10px 20px; background: #18e299; color: #0b1020; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; white-space: nowrap;">
+            Copy
+          </button>
+        </div>
+      </div>
+      <div style="margin-top:10px;color:#9aa7bd;font-size:12px;">
+        This browser will now also listen on group room: <span style="color:#18e299;font-family:monospace;">${groupId}</span>
+      </div>
+    `;
+    urlDisplay.style.display = 'block';
+  } catch (e) {
+    urlDisplay.innerHTML = `<div style="color: #e78888; padding: 12px; background: rgba(231, 136, 136, 0.1); border-radius: 6px;">Error: ${e.message}</div>`;
+    urlDisplay.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate Group Endpoint';
+  }
+});
+
+
+      // SDK-ONLY mode: No admin listing of users/groups
+      // User can only generate their own endpoint
+      console.log('[AUTH] SDK-only mode: User can generate their own endpoint');
+    })();
+
+    function showCopyNotification() {
+      const toast = document.createElement('div');
+      toast.className = 'copy-toast';
+      toast.textContent = '✓ URL copied to clipboard!';
+      document.body.appendChild(toast);
+
+      setTimeout(() => { toast.remove(); }, 3000);
+    }
+
+    // Copy generated URL function
+    function copyGeneratedUrl() {
+      const input = document.getElementById('generatedUrl');
+      if (input) {
+        input.select();
+        navigator.clipboard.writeText(input.value).then(() => {
+          showCopyToast('URL copied to clipboard!');
+        }).catch(err => {
+          console.error('Failed to copy:', err);
+          showCopyToast('Failed to copy');
+        });
+      }
+    }
+
+    // Show copy toast notification
+    function showCopyToast(message = 'Copied!') {
+      const toast = document.createElement('div');
+      toast.className = 'copy-toast';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      setTimeout(() => { toast.remove(); }, 3000);
+    }
+
+    // Navigation
+    document.getElementById('tabLive').addEventListener('click', () => {
+      window.location.href = '/live';
+    });
+
+    document.getElementById('tabHist').addEventListener('click', () => {
+      window.location.href = '/history';
+    });
+
+    document.getElementById('tabAuth').addEventListener('click', () => {});
+  </script>
+</body>
+</html>

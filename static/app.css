@@ -20,6 +20,13 @@
   align-items:center;
   gap:12px;
 }
+.code-inline {
+  font-family: Courier New, monospace;
+  color: #18e299;
+}
+.auth-desc-margin {
+  margin-top: 12px;
+}
 
 /* map elements to grid areas (scoped so card badges aren't affected) */
 #liveEq{ grid-area:eq; align-self:center; }           /* same row as number */
