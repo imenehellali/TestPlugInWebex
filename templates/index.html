@@ -23,6 +23,10 @@
     await app.onReady();
     await app.listen();
 
+    const userInfo = app.application?.states?.user || {};
+    window.webexUserId = userInfo.id || null;
+    window.webexUserInfo = userInfo;
+
     const lastKey = new Map(); // call.id -> "state|remote|local|name"
 
     function getLocalNumber(call = {}) {
@@ -119,6 +123,7 @@
   <div class="topbar">
     <button id="tabLive" class="tab tab--active">Live</button>
     <button id="tabHist" class="tab">History</button>
+    <button id="tabAuth" class="tab">Authorization</button>
   </div>
 
   <div class="container">
@@ -167,6 +172,7 @@
     const tabHist = document.getElementById('tabHist');
     const viewLive = document.getElementById('viewLive');
     const viewHist = document.getElementById('viewHist');
+    const tabAuth = document.getElementById('tabAuth');
 
     function showLive() {
       tabLive.classList.add('tab--active');
@@ -183,6 +189,9 @@
     }
     tabLive.addEventListener('click', showLive);
     tabHist.addEventListener('click', showHist);
+    tabAuth.addEventListener('click', () => {
+      window.location.href = '/authorization';
+    });
 
     // ---------- Live view ----------
     async function prettyCaller(raw) {
@@ -215,8 +224,8 @@
       return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
-    function initStructuredCard({ name = '—', number = '—', email = '—', agent = '—' } = {}) {
-      liveModel = { name, number, email, agent };
+    function initStructuredCard({ name = '—', number = '—', email = '—', agent = '—', summary = '—' } = {}) {
+      liveModel = { name, number, email, agent, summary };
       liveTx.innerHTML = `
     <div class="tx-card" aria-live="polite" aria-atomic="false">
       <div class="tx-grid">
@@ -237,6 +246,10 @@
           <div id="fldAgent" class="tx-value">${escapeHtml(agent)}</div>
         </div>
         <div class="tx-field tx-section">
+          <div class="tx-label">Summary</div>
+          <div id="fldSummary" class="tx-value">${escapeHtml(summary)}</div>
+        </div>
+        <div class="tx-field tx-section">
           <div class="tx-label">Anliegen</div>
           <ul id="listConcerns" class="tx-list" role="log"></ul>
         </div>
@@ -253,17 +266,16 @@
       txSkeleton.classList.add('hidden');
       liveTx.classList.remove('hidden');
     }
-    function addConcernLines(text) {
-      if (!text || !text.trim()) return;
-      const list = document.getElementById('listConcerns');
-      const parts = text.split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/).map(s => s.trim()).filter(Boolean);
-      for (const p of parts) {
+    function addListItems(listId, items) {
+      const list = document.getElementById(listId);
+      if (!list) return;
+      list.innerHTML = '';
+      const normalized = Array.isArray(items) ? items : [];
+      normalized.forEach(item => {
         const li = document.createElement('li');
-        li.textContent = p;
-        list.appendChild(li);
-      }
-      // keep scrolled to bottom
-      liveTx.scrollTop = liveTx.scrollHeight;
+        li.textContent = String(item || '').trim();
+        if (li.textContent) list.appendChild(li);
+      });
     }
 
 
@@ -284,10 +296,20 @@
     setIdle(true);
 
     const socket = io();
+    socket.on('connect', () => {
+      const userId = window.webexUserId;
+      const groupIds = (() => {
+        try { return JSON.parse(localStorage.getItem('placetel_group_ids') || '[]'); }
+        catch { return []; }
+      })();
+      if (userId || groupIds.length) {
+        socket.emit('join', { user_id: userId, group_ids: groupIds });
+      }
+    });
 
     socket.on('call_event', async (p) => {
       const state = (p.state || '').toLowerCase();
-      const remoteNumber = p.remoteNumber || '';
+      const remoteNumber = p.remoteNumber || p.caller || '';
       const displayName = p.displayName || '';
       const labelSource = remoteNumber || displayName; // prefer number
       liveHeader.textContent = labelSource ? await prettyCaller(labelSource) : 'Unknown';
@@ -320,10 +342,11 @@
         const pretty = labelSource ? await prettyCaller(labelSource) : '—';
         const nameOnly = pretty.replace(/\s*\([^)]+\)\s*$/, '');
         initStructuredCard({
-          name: nameOnly || '—',
-          number: remoteNumber || '—',
-          email: '—',
-          agent: '—'
+          name: p.customer_name || nameOnly || '—',
+          number: p.customer_number || remoteNumber || '—',
+          email: p.customer_email || '—',
+          agent: p.agent_name || '—',
+          summary: p.summary || '—'
         });
       } else {
         liveIdle.classList.add('hidden');
@@ -332,7 +355,30 @@
         liveTx.classList.remove('hidden');
       }
 
-      if (p.transcript && p.transcript.trim()) addConcernLines(p.transcript);
+      if (p.summary && document.getElementById('fldSummary')) {
+        document.getElementById('fldSummary').textContent = p.summary;
+      }
+      if (p.customer_name && document.getElementById('fldName')) {
+        document.getElementById('fldName').textContent = p.customer_name;
+      }
+      if (p.customer_number && document.getElementById('fldNumber')) {
+        document.getElementById('fldNumber').textContent = p.customer_number;
+      }
+      if (p.customer_email && document.getElementById('fldEmail')) {
+        document.getElementById('fldEmail').textContent = p.customer_email;
+      }
+      if (p.agent_name && document.getElementById('fldAgent')) {
+        document.getElementById('fldAgent').textContent = p.agent_name;
+      }
+      if (Array.isArray(p.concerns) && p.concerns.length) {
+        addListItems('listConcerns', p.concerns);
+      } else if (p.transcript) {
+        const parts = p.transcript.split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/).map(s => s.trim()).filter(Boolean);
+        addListItems('listConcerns', parts);
+      } else {
+        addListItems('listConcerns', []);
+      }
+      addListItems('listTasks', p.tasks);
       return;  // prevent idle fallback
 
     });
