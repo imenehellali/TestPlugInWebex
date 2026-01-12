@@ -234,7 +234,7 @@ def _persist_call_assets(call_id: str, entry: dict):
     # file name like: +49221xxxxxx_<shortId>_2025-10-28.json
     caller = (entry.get("caller") or "unknown").replace(" ", "")
     short = call_id[:8]
-    stamp = datetime.utcnow().strftime("%Y-%m-%d")
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     base = f"{caller}_{short}_{stamp}"
 
     # transcript JSON and text
@@ -365,12 +365,14 @@ def _record_call_event(
     display_name: str | None = None,
     recording_url: str | None = None,
     room: str | None = None,
+    event_data: dict | None = None,
 ):
+    event_data = event_data or {}
     entry = CALL_LOGS.setdefault(
         call_id,
         {
             "caller": caller,
-            "created": datetime.utcnow().isoformat() + "Z",
+            "created": datetime.now(timezone.utc).isoformat(),
             "events": [],
         },
     )
@@ -385,7 +387,7 @@ def _record_call_event(
 
     entry["events"].append(
         {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "state": state,
             "transcript": transcript,
         }
@@ -400,6 +402,14 @@ def _record_call_event(
             "displayName": display_name or "",
             "state": state,
             "transcript": transcript,
+            "summary": event_data.get("summary"),
+            "call_data": event_data.get("call_data"),
+            "agent_name": event_data.get("agent_name"),
+            "customer_name": event_data.get("customer_name"),
+            "customer_number": event_data.get("customer_number"),
+            "customer_email": event_data.get("customer_email"),
+            "concerns": event_data.get("concerns"),
+            "tasks": event_data.get("tasks"),
         },
         room=room,
     )
@@ -409,6 +419,16 @@ def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = 
     transcript = payload.get("transcript") or payload.get("text") or ""
     caller = (payload.get("remoteNumber") or payload.get("caller") or payload.get("number") or "unknown").strip()
     call_id = payload.get("call_id") or str(uuid.uuid4())
+    call_data = payload.get("call_data")
+    if not call_data:
+        call_data = {
+            "agent_name": payload.get("agent_name", "—"),
+            "customer_name": payload.get("customer_name", "—"),
+            "customer_number": payload.get("customer_number", caller or "—"),
+            "customer_email": payload.get("customer_email", "—"),
+            "concerns": payload.get("concerns", []),
+            "tasks": payload.get("tasks", []),
+        }
     for target in targets:
         _record_call_event(
             call_id=call_id,
@@ -418,6 +438,16 @@ def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = 
             remote_number=payload.get("remoteNumber") or payload.get("number") or caller,
             display_name=payload.get("displayName") or payload.get("display_name") or "",
             room=target,
+            event_data={
+                "summary": payload.get("summary"),
+                "call_data": call_data,
+                "agent_name": payload.get("agent_name"),
+                "customer_name": payload.get("customer_name"),
+                "customer_number": payload.get("customer_number"),
+                "customer_email": payload.get("customer_email"),
+                "concerns": payload.get("concerns"),
+                "tasks": payload.get("tasks"),
+            },
         )
 
 
@@ -723,7 +753,7 @@ def auth_generate_v2():
     )
 
 
-@app.post("/api/post/<token>")
+@app.route("/api/post/<token>", methods=["POST"], strict_slashes=False)
 def post_transcript_v1(token: str):
     auth = AUTH_TOKENS.get(token)
     if not auth:
@@ -744,7 +774,7 @@ def post_transcript_v1(token: str):
     return jsonify({"ok": True, "version": "v1"})
 
 
-@app.post("/api/placetel/v2/transcripts")
+@app.route("/api/placetel/v2/transcripts", methods=["POST"], strict_slashes=False)
 def placetel_v2_transcripts():
     payload = request.get_json(force=True)
     forward_number = (payload.get("forward_number") or "").strip()
