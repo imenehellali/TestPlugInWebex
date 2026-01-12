@@ -369,6 +369,8 @@ def _record_call_event(
     caller: str,
     state: str,
     transcript: str,
+    summary: str | None = None,
+    call_data: dict | None = None,
     remote_number: str | None = None,
     display_name: str | None = None,
     recording_url: str | None = None,
@@ -396,6 +398,8 @@ def _record_call_event(
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "state": state,
             "transcript": transcript,
+            "summary": summary,
+            "call_data": call_data,
         }
     )
 
@@ -408,6 +412,8 @@ def _record_call_event(
             "displayName": display_name or "",
             "state": state,
             "transcript": transcript,
+            "summary": summary,
+            "call_data": call_data,
         },
         room=room,
     )
@@ -415,6 +421,8 @@ def _record_call_event(
 
 def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = "connected"):
     transcript = payload.get("transcript") or payload.get("text") or ""
+    summary = payload.get("summary") or ""
+    call_data = payload.get("call_data")
     caller = (payload.get("remoteNumber") or payload.get("caller") or payload.get("number") or "unknown").strip()
     call_id = payload.get("call_id") or str(uuid.uuid4())
     for target in targets:
@@ -423,6 +431,8 @@ def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = 
             caller=caller,
             state=state,
             transcript=transcript,
+            summary=summary,
+            call_data=call_data,
             remote_number=payload.get("remoteNumber") or payload.get("number") or caller,
             display_name=payload.get("displayName") or payload.get("display_name") or "",
             room=target,
