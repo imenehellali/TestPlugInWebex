@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>History</title>
+  <link rel="stylesheet" href="/static/app.css">
   <style>
-    body { background:#0e1623; color:#e6eefb; font-family:system-ui,Arial; margin:0; padding:20px }
     h2 { color:#9ad1ff }
     .empty { display:flex; flex-direction:column; align-items:center; gap:12px; color:#9aa7bd; padding:60px 0 }
     .pulse { width:96px; height:96px; animation: float 3s ease-in-out infinite }
@@ -16,15 +16,32 @@
     .sum  { color:#b9c7de; white-space:pre-wrap; margin-top:6px }
   </style>
 </head>
-<body>
-  <h2>Call History</h2>
-  <div id="wrap"></div>
-  <div class="empty" id="empty" style="display:none">
-    <img class="pulse" src="/static/bot.png" alt="AI bot">
-    <div>No history yet. New client is calling…</div>
+<body class="page">
+  <div class="topbar">
+    <button id="tabLive" class="tab">Live</button>
+    <button id="tabHist" class="tab tab--active">History</button>
+    <button id="tabAuth" class="tab">Authorization</button>
+  </div>
+  <div class="container">
+    <h2>Call History</h2>
+    <div id="wrap"></div>
+    <div class="empty" id="empty" style="display:none">
+      <img class="pulse" src="/static/bot.png" alt="AI bot">
+      <div>No history yet. New client is calling…</div>
+    </div>
   </div>
 
   <script>
+    document.getElementById('tabLive').addEventListener('click', () => {
+      location.href = '/';
+    });
+    document.getElementById('tabHist').addEventListener('click', () => {
+      location.href = '/history';
+    });
+    document.getElementById('tabAuth').addEventListener('click', () => {
+      location.href = '/authorization';
+    });
+
     const wrap = document.getElementById('wrap');
     const empty = document.getElementById('empty');
 
