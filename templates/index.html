@@ -282,6 +282,29 @@
       liveTx.scrollTop = liveTx.scrollHeight;
     }
 
+    function renderList(el, items) {
+      if (!el) return;
+      el.innerHTML = '';
+      for (const item of items) {
+        const li = document.createElement('li');
+        li.textContent = item;
+        el.appendChild(li);
+      }
+    }
+
+    function updateStructuredCard({ name = '—', number = '—', email = '—', agent = '—', concerns = [], tasks = [] } = {}) {
+      const nameEl = document.getElementById('fldName');
+      const numberEl = document.getElementById('fldNumber');
+      const emailEl = document.getElementById('fldEmail');
+      const agentEl = document.getElementById('fldAgent');
+      if (nameEl) nameEl.textContent = name;
+      if (numberEl) numberEl.textContent = number;
+      if (emailEl) emailEl.textContent = email;
+      if (agentEl) agentEl.textContent = agent;
+      renderList(document.getElementById('listConcerns'), concerns);
+      renderList(document.getElementById('listTasks'), tasks);
+    }
+
 
 
     function setIdle(isIdle) {
@@ -356,6 +379,21 @@
         noLiveTx.classList.add('hidden');
         txSkeleton.classList.add('hidden');
         liveTx.classList.remove('hidden');
+      }
+
+      if (p.call_data || p.summary) {
+        const cd = p.call_data || {};
+        const concerns = Array.isArray(cd.concerns) ? cd.concerns : [];
+        const tasks = Array.isArray(cd.tasks) ? cd.tasks : [];
+        const summaryLine = p.summary && !concerns.length ? [p.summary] : [];
+        updateStructuredCard({
+          name: cd.customer_name || labelSource || '—',
+          number: cd.customer_number || remoteNumber || '—',
+          email: cd.customer_email || '—',
+          agent: cd.agent_name || '—',
+          concerns: concerns.length ? concerns : summaryLine,
+          tasks
+        });
       }
 
       if (p.transcript && p.transcript.trim()) addConcernLines(p.transcript);
