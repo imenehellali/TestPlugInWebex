@@ -843,6 +843,8 @@ def webhook_call_assigned():
     }
 
     entry = MIDDLEWARE.pop_for_forward(forward_number, call_id)
+    if not entry and call_id:
+        entry = MIDDLEWARE.pop_for_forward(forward_number)
     if entry:
         _emit_transcript_to_targets([user_id], entry["payload"])
         return jsonify({"ok": True, "delivered": True})
