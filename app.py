@@ -802,6 +802,9 @@ def placetel_v2_transcripts():
     payload = request.get_json(force=True)
     forward_number = (payload.get("forward_number") or "").strip()
     admin_tenant = (payload.get("admin_tenant") or "").strip()
+    if not admin_tenant:
+        _, bearer_tenant = _parse_v2_bearer()
+        admin_tenant = bearer_tenant or ""
 
     if not forward_number:
         return jsonify({"error": "forward_number required"}), 400
