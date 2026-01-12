@@ -801,7 +801,14 @@ def placetel_v2_transcripts():
         _emit_transcript_to_targets([assignment["user_id"]], payload)
         return jsonify({"ok": True, "delivered": True, "version": "v2"})
 
+    payload["call_id"] = payload.get("call_id") or str(uuid.uuid4())
     call_id = MIDDLEWARE.add(payload, forward_number, admin_tenant)
+
+    members = GROUP_MEMBERS.get(forward_number, set())
+    if members:
+        _emit_transcript_to_targets(list(members), payload)
+        return jsonify({"ok": True, "stored": True, "broadcast": True, "call_id": call_id, "version": "v2"})
+
     return jsonify({"ok": True, "stored": True, "call_id": call_id, "version": "v2"})
 
 
