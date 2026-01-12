@@ -1,0 +1,27 @@
+{
+  "caller": "+4917681494193",
+  "created": "2026-01-12T11:57:55.092254Z",
+  "events": [
+    {
+      "timestamp": "2026-01-12T11:57:55.092283Z",
+      "state": "disconnecting",
+      "transcript": "",
+      "summary": null,
+      "call_data": null
+    },
+    {
+      "timestamp": "2026-01-12T11:57:55.206045Z",
+      "state": "disconnected",
+      "transcript": "",
+      "summary": null,
+      "call_data": null
+    },
+    {
+      "timestamp": "2026-01-12T11:57:55.217037Z",
+      "state": "ended",
+      "transcript": "",
+      "summary": null,
+      "call_data": null
+    }
+  ]
+}
