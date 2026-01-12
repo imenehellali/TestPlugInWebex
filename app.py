@@ -351,10 +351,13 @@ def ingest():
     return jsonify({"error": "nothing ingested"}), 400
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 def _bearer():
     """Get the Webex bearer token from environment or default."""
     return WEBEX_BEARER
 =======
+=======
+>>>>>>> Stashed changes
 
 def _bearer():
     # for dev: valid for each 12h to modify each log in
@@ -506,6 +509,7 @@ def _require_v2_bearer(admin_tenant: str):
 
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 def _store_history_payload(payload):
     if payload is None:
         return 0
@@ -559,11 +563,16 @@ def api_calls_history():
             return jsonify({"items": [data.get("item")]})
     return jsonify({"items": []})
 =======
+=======
+>>>>>>> Stashed changes
 @app.route("/api/calls/history")
 def api_calls_history():
     # Webhook-fed history store
     return jsonify({"items": CALL_HISTORY})
 
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 
 @app.route("/api/cdr_feed")
@@ -640,11 +649,16 @@ def recordings_details(rec_id):
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
         headers=_wbx_headers(),
         timeout=20,
     ).json()
+=======
+    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                        headers=_wbx_headers(), timeout=20).json()
+>>>>>>> Stashed changes
 =======
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
                         headers=_wbx_headers(), timeout=20).json()
@@ -665,11 +679,16 @@ def recordings_download(rec_id):
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
         headers=_wbx_headers(),
         timeout=20,
     ).json()
+=======
+    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                        headers=_wbx_headers(), timeout=20).json()
+>>>>>>> Stashed changes
 =======
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
                         headers=_wbx_headers(), timeout=20).json()
