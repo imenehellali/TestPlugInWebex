@@ -49,7 +49,6 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # in-memory store; persisted on call end
-<<<<<<< HEAD
 CALL_LOGS: dict[str, dict] = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
 AUTH_TOKENS: dict[str, dict] = {}
 AUTH_V2: dict[str, dict] = {}
@@ -143,14 +142,11 @@ def handle_leave(data):
         print(f"User {user_id} left room")
 
 
-=======
-CALL_LOGS = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
-CALL_HISTORY = []  # [{name, number, time, type, callSessionId, ...}]
-
-def _bearer():
-    """Get the Webex bearer token from environment or default"""
+def _bearer() -> str:
+    """Get the Webex bearer token from environment or default."""
     return WEBEX_BEARER
->>>>>>> origin/codex/ensure-webhook-service-payload-format
+
+
 @app.after_request
 def set_headers(resp):
     csp = "frame-ancestors 'self' https://*.webex.com https://*.webexcontent.com https://*.cisco.com"
@@ -353,14 +349,10 @@ def ingest():
 
     return jsonify({"error": "nothing ingested"}), 400
 
-<<<<<<< HEAD
-
-def _bearer():
-    # for dev: valid for each 12h to modify each log in
-    return os.environ.get(
-        "WEBEX_USER_TOKEN",
-        "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
-    )
+def _external_base_url() -> str:
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host = request.headers.get("X-Forwarded-Host", request.host)
+    return f"{scheme}://{host}".rstrip("/")
 
 
 def _record_call_event(
@@ -458,12 +450,6 @@ def _require_v2_bearer(admin_tenant: str):
     return _match_secret_key(token, admin_tenant)
 
 
-@app.route("/api/calls/history")
-def api_calls_history():
-    # Webhook-fed history store
-    return jsonify({"items": CALL_HISTORY})
-
-=======
 def _store_history_payload(payload):
     if payload is None:
         return 0
@@ -481,7 +467,9 @@ def _store_history_payload(payload):
 
     normalized = [item for item in items if isinstance(item, dict)]
     CALL_HISTORY.extend(normalized)
+    _write_json(HISTORY_PATH, CALL_HISTORY)
     return len(normalized)
+
 
 @app.post("/api/webhooks/calls/history")
 def webhook_calls_history():
@@ -490,6 +478,7 @@ def webhook_calls_history():
     if not stored:
         return jsonify({"error": "payload must contain item or items"}), 400
     return jsonify({"ok": True, "stored": stored}), 200
+
 
 @app.route("/api/calls/history")
 def api_calls_history():
@@ -515,7 +504,6 @@ def api_calls_history():
         if "item" in data:
             return jsonify({"items": [data.get("item")]})
     return jsonify({"items": []})
->>>>>>> origin/codex/ensure-webhook-service-payload-format
 
 @app.route("/api/cdr_feed")
 def api_cdr_feed():
@@ -568,11 +556,10 @@ def list_recordings_by_session():
     if not session_id:
         return jsonify({"items": []}), 200
     # Converged Recordings supports filtering by callSessionId via query "callSessionId"
-<<<<<<< HEAD
     r = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings",
         params={"callSessionId": session_id},
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     )
     return (r.text, r.status_code, {"Content-Type": "application/json"})
@@ -582,36 +569,20 @@ def list_recordings_by_session():
 def recordings_details(rec_id):
     r = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     )
-=======
-    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings",
-                     params={"callSessionId": session_id},
-                     headers=_wbx_headers(), timeout=20)
-    return (r.text, r.status_code, {"Content-Type":"application/json"})
-
-@app.get("/api/recordings/<rec_id>")
-def recordings_details(rec_id):
-    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                     headers=_wbx_headers(), timeout=20)
->>>>>>> origin/codex/ensure-webhook-service-payload-format
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
 
 @app.get("/api/recordings/<rec_id>/download")
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
-<<<<<<< HEAD
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     ).json()
-=======
-    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_wbx_headers(), timeout=20).json()
->>>>>>> origin/codex/ensure-webhook-service-payload-format
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -627,16 +598,11 @@ def recordings_download(rec_id):
 @app.post("/api/recordings/<rec_id>/transcribe")
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
-<<<<<<< HEAD
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     ).json()
-=======
-    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_wbx_headers(), timeout=20).json()
->>>>>>> origin/codex/ensure-webhook-service-payload-format
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -714,7 +680,7 @@ def auth_generate():
     AUTH_TOKENS[target_id] = auth_data
     _write_json(AUTH_DIR / f"{target_id}.json", auth_data)
 
-    base = request.host_url.rstrip("/")
+    base = _external_base_url()
     post_url = f"{base}/api/post/{target_id}"
     return jsonify({"post_url": post_url, "version": "v1"})
 
@@ -746,7 +712,7 @@ def auth_generate_v2():
     USER_ADMIN[target_id] = admin_tenant
     _write_json(USER_ADMIN_PATH, USER_ADMIN)
 
-    base = request.host_url.rstrip("/")
+    base = _external_base_url()
     post_url = f"{base}/api/placetel/v2/transcripts"
     return jsonify(
         {
@@ -840,24 +806,6 @@ def webhook_call_assigned():
         _emit_transcript_to_targets([user_id], entry["payload"])
         return jsonify({"ok": True, "delivered": True})
     return jsonify({"ok": True, "delivered": False})
-
-
-@app.post("/api/webhooks/calls/history")
-def webhook_calls_history():
-    payload = request.get_json(force=True)
-    items = payload.get("items") or []
-    if payload.get("item"):
-        items = [payload["item"]]
-
-    if not isinstance(items, list) or not items:
-        return jsonify({"error": "items required"}), 400
-
-    for item in items:
-        item.setdefault("received_at", datetime.now(timezone.utc).isoformat())
-        CALL_HISTORY.append(item)
-
-    _write_json(HISTORY_PATH, CALL_HISTORY)
-    return jsonify({"ok": True, "count": len(items)})
 
 
 if __name__ == "__main__":
