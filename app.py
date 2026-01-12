@@ -23,7 +23,7 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
 WEBEX_BEARER = os.environ.get(
     "WEBEX_BEARER",
-    "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
@@ -350,9 +350,19 @@ def ingest():
 
     return jsonify({"error": "nothing ingested"}), 400
 
+<<<<<<< Updated upstream
 def _bearer():
     """Get the Webex bearer token from environment or default."""
     return WEBEX_BEARER
+=======
+
+def _bearer():
+    # for dev: valid for each 12h to modify each log in
+    return os.environ.get(
+        "WEBEX_USER_TOKEN",
+        "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    )
+>>>>>>> Stashed changes
 
 
 def _record_call_event(
@@ -495,6 +505,7 @@ def _require_v2_bearer(admin_tenant: str):
     return _match_secret_key(token, admin_tenant)
 
 
+<<<<<<< Updated upstream
 def _store_history_payload(payload):
     if payload is None:
         return 0
@@ -547,6 +558,13 @@ def api_calls_history():
         if "item" in data:
             return jsonify({"items": [data.get("item")]})
     return jsonify({"items": []})
+=======
+@app.route("/api/calls/history")
+def api_calls_history():
+    # Webhook-fed history store
+    return jsonify({"items": CALL_HISTORY})
+
+>>>>>>> Stashed changes
 
 @app.route("/api/cdr_feed")
 def api_cdr_feed():
@@ -621,11 +639,16 @@ def recordings_details(rec_id):
 @app.get("/api/recordings/<rec_id>/download")
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
+<<<<<<< Updated upstream
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
         headers=_wbx_headers(),
         timeout=20,
     ).json()
+=======
+    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                        headers=_wbx_headers(), timeout=20).json()
+>>>>>>> Stashed changes
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -641,11 +664,16 @@ def recordings_download(rec_id):
 @app.post("/api/recordings/<rec_id>/transcribe")
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
+<<<<<<< Updated upstream
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
         headers=_wbx_headers(),
         timeout=20,
     ).json()
+=======
+    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
+                        headers=_wbx_headers(), timeout=20).json()
+>>>>>>> Stashed changes
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
