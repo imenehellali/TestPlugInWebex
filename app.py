@@ -28,6 +28,7 @@ WEBEX_BEARER = os.environ.get(
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
 PLACETEL_SECRET_KEYS = os.environ.get("PLACETEL_SECRET_KEYS", "").strip()
+PLACETEL_ADMIN_TENANTS = os.environ.get("PLACETEL_ADMIN_TENANTS", "25063011173").strip()
 ##### ------------------------------------------------------
 
 LAST_ACTIVE_BY_NUMBER: dict[str, str] = {}  # { "+4922...": "call_id" }
@@ -457,9 +458,33 @@ def _allowed_secret_keys() -> list[str]:
         return [k.strip() for k in PLACETEL_SECRET_KEYS.split(",") if k.strip()]
     return [PLACETEL_SECRET_KEY]
 
+def _allowed_admin_tenants() -> list[str]:
+    if PLACETEL_ADMIN_TENANTS:
+        return [t.strip() for t in PLACETEL_ADMIN_TENANTS.split(",") if t.strip()]
+    return []
+
+def _parse_v2_bearer() -> tuple[str | None, str | None]:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return (None, None)
+    token = auth_header.split(" ", 1)[1].strip()
+    for secret in _allowed_secret_keys():
+        if len(secret) != 16:
+            continue
+        if token.startswith(secret):
+            tenant = token[len(secret):]
+            if not tenant:
+                return (None, None)
+            if _allowed_admin_tenants() and tenant not in _allowed_admin_tenants():
+                return (None, None)
+            return (secret, tenant)
+    return (None, None)
+
 
 def _match_secret_key(token: str, admin_tenant: str) -> bool:
     if not admin_tenant or not token:
+        return False
+    if _allowed_admin_tenants() and admin_tenant not in _allowed_admin_tenants():
         return False
     for secret in _allowed_secret_keys():
         if len(secret) != 16:
