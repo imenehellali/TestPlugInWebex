@@ -24,6 +24,7 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 WEBEX_BEARER = os.environ.get(
     "WEBEX_BEARER",
     "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
@@ -363,6 +364,7 @@ def _bearer():
     # for dev: valid for each 12h to modify each log in
     return os.environ.get(
         "WEBEX_USER_TOKEN",
+        "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
         "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
     )
 >>>>>>> Stashed changes
