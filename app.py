@@ -423,6 +423,15 @@ def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = 
     transcript = payload.get("transcript") or payload.get("text") or ""
     summary = payload.get("summary") or ""
     call_data = payload.get("call_data")
+    if not call_data:
+        call_data = {
+            "agent_name": payload.get("agent_name") or payload.get("agentName") or "—",
+            "customer_name": payload.get("customer_name") or payload.get("customerName") or "—",
+            "customer_number": payload.get("customer_number") or payload.get("customerNumber") or payload.get("caller") or payload.get("number") or "—",
+            "customer_email": payload.get("customer_email") or payload.get("customerEmail") or "—",
+            "concerns": payload.get("concerns") or [],
+            "tasks": payload.get("tasks") or [],
+        }
     caller = (payload.get("remoteNumber") or payload.get("caller") or payload.get("number") or "unknown").strip()
     call_id = payload.get("call_id") or str(uuid.uuid4())
     for target in targets:
