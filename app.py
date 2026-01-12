@@ -631,22 +631,16 @@ def recordings_details(rec_id):
 
 @app.get("/api/recordings/<rec_id>/download")
 def recordings_download(rec_id):
-    # proxy the temporary direct link so the browser can save/play
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
         headers=_wbx_headers(),
         timeout=20,
     ).json()
-=======
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
                         headers=_wbx_headers(), timeout=20).json()
->>>>>>> Stashed changes
-=======
     info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
                         headers=_wbx_headers(), timeout=20).json()
->>>>>>> Stashed changes
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
