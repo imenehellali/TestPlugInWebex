@@ -23,7 +23,7 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
 WEBEX_BEARER = os.environ.get(
     "WEBEX_BEARER",
-    "Y2FjODczYTgtYzBmMi00ZWQ5LWFhZjctMWEyYjFiNWYyZWRjNmEwYzVhNjAtYjg1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
@@ -858,26 +858,6 @@ def placetel_v2_transcripts():
     payload["forward_number"] = forward_number
     if caller:
         V2_BY_CALLER[caller] = payload
-        active_call_id = LAST_ACTIVE_BY_NUMBER.get(caller)
-        if active_call_id:
-            _record_call_event(
-                call_id=active_call_id,
-                caller=caller,
-                state="connected",
-                transcript="",
-                remote_number=caller,
-                display_name="",
-                event_data={
-                    "summary": payload.get("summary"),
-                    "call_data": _build_call_data(payload, caller),
-                    "agent_name": payload.get("agent_name"),
-                    "customer_name": payload.get("customer_name"),
-                    "customer_number": payload.get("customer_number"),
-                    "customer_email": payload.get("customer_email"),
-                    "concerns": payload.get("concerns"),
-                    "tasks": payload.get("tasks"),
-                },
-            )
 
     assignment = V2_ASSIGNMENTS.get(forward_number)
     if assignment:
