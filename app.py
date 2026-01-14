@@ -23,7 +23,7 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
 WEBEX_BEARER = os.environ.get(
     "WEBEX_BEARER",
-    "NzFlYjM0NWEtOGFjYy00ZGIzLWE3MTUtNDlmNzQ2NWMzMDE4YjlhZWRkNTQtNmQ1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
@@ -472,12 +472,46 @@ def _match_secret_key(token: str, admin_tenant: str) -> bool:
     return False
 
 
-def _require_v2_bearer(admin_tenant: str):
+def _get_bearer_token() -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        return False
+        return None
     token = auth_header.split(" ", 1)[1].strip()
-    return _match_secret_key(token, admin_tenant)
+    return token or None
+
+
+def _extract_admin_tenant_from_bearer() -> str | None:
+    token = _get_bearer_token()
+    if not token:
+        return None
+    for secret in _allowed_secret_keys():
+        if len(secret) != 16:
+            continue
+        if token.startswith(secret) and len(token) > len(secret):
+            return token[len(secret):]
+    return None
+
+
+def _require_v2_bearer(admin_tenant: str):
+    token = _get_bearer_token()
+    return _match_secret_key(token or "", admin_tenant)
+
+
+def _resolve_forward_number(payload: dict, caller: str) -> str:
+    candidates = [
+        payload.get("forward_number"),
+        payload.get("called_number"),
+        payload.get("dialed_number"),
+        payload.get("local_number"),
+        payload.get("to"),
+        payload.get("target_number"),
+        payload.get("queue_number"),
+        payload.get("customer_number"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return caller.strip() if caller else ""
 
 
 def _store_history_payload(payload):
@@ -777,19 +811,30 @@ def post_transcript_v1(token: str):
 @app.route("/api/placetel/v2/transcripts", methods=["POST"], strict_slashes=False)
 def placetel_v2_transcripts():
     payload = request.get_json(force=True)
-    forward_number = (payload.get("forward_number") or "").strip()
     admin_tenant = (payload.get("admin_tenant") or "").strip()
 
-    if not forward_number:
-        return jsonify({"error": "forward_number required"}), 400
     if not admin_tenant:
-        return jsonify({"error": "admin_tenant required"}), 400
+        admin_tenant = _extract_admin_tenant_from_bearer() or ""
     if not any(len(key) == 16 for key in _allowed_secret_keys()):
         return jsonify({"error": "PLACETEL_SECRET_KEY(S) must include a 16 character key"}), 500
+    if not admin_tenant:
+        return jsonify({"error": "admin_tenant required"}), 400
     if not _require_v2_bearer(admin_tenant):
         return jsonify({"error": "invalid bearer"}), 403
 
     MIDDLEWARE.purge()
+
+    caller = (payload.get("caller") or "").strip()
+    summary = (payload.get("summary") or "").strip()
+    forward_number = _resolve_forward_number(payload, caller)
+
+    if not caller or not summary:
+        return jsonify({"error": "caller and summary required"}), 400
+    if not forward_number:
+        return jsonify({"error": "forward_number required"}), 400
+
+    payload["admin_tenant"] = admin_tenant
+    payload["forward_number"] = forward_number
 
     assignment = V2_ASSIGNMENTS.get(forward_number)
     if assignment:
