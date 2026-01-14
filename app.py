@@ -23,11 +23,11 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
 WEBEX_BEARER = os.environ.get(
     "WEBEX_BEARER",
-    "Y2FjODczYTgtYzBmMi00ZWQ5LWFhZjctMWEyYjFiNWYyZWRjNmEwYzVhNjAtYjg1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
-PLACETEL_SECRET_KEYS = os.environ.get("PLACETEL_SECRET_KEYS", "25063011173").strip()
+PLACETEL_SECRET_KEYS = os.environ.get("PLACETEL_SECRET_KEYS", "").strip()
 ##### ------------------------------------------------------
 
 LAST_ACTIVE_BY_NUMBER: dict[str, str] = {}  # { "+4922...": "call_id" }
@@ -58,6 +58,7 @@ USER_ADMIN: dict[str, str] = {}
 CALL_HISTORY: list[dict] = []
 
 V2_ASSIGNMENTS: dict[str, dict] = {}  # forward_number -> {user_id, call_id, assigned_at}
+V2_BY_CALLER: dict[str, dict] = {}
 
 
 MIDDLEWARE = PlacetelAIMiddleware(ttl_minutes=30)
@@ -198,6 +199,23 @@ def simulate():
     transcript = data.get("transcript", "")
     rec_url = data.get("recording_url")  # optional, if you wire webhooks later
 
+    event_data = {}
+    if state == "connected":
+        stored = V2_BY_CALLER.get(caller)
+        if stored:
+            event_data = {
+                "summary": stored.get("summary"),
+                "call_data": _build_call_data(stored, caller),
+                "agent_name": stored.get("agent_name"),
+                "customer_name": stored.get("customer_name"),
+                "customer_number": stored.get("customer_number"),
+                "customer_email": stored.get("customer_email"),
+                "concerns": stored.get("concerns"),
+                "tasks": stored.get("tasks"),
+            }
+    elif state in {"ended", "completed", "hangup"} and caller:
+        V2_BY_CALLER.pop(caller, None)
+
     _record_call_event(
         call_id=call_id,
         caller=caller,
@@ -206,6 +224,7 @@ def simulate():
         remote_number=caller,
         display_name=display_name,
         recording_url=rec_url,
+        event_data=event_data,
     )
 
     # on end: persist locally
@@ -415,20 +434,22 @@ def _record_call_event(
     )
 
 
+def _build_call_data(payload: dict, caller: str) -> dict:
+    return {
+        "agent_name": payload.get("agent_name", "—"),
+        "customer_name": payload.get("customer_name", "—"),
+        "customer_number": payload.get("customer_number", caller or "—"),
+        "customer_email": payload.get("customer_email", "—"),
+        "concerns": payload.get("concerns", []),
+        "tasks": payload.get("tasks", []),
+    }
+
+
 def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = "connected"):
     transcript = payload.get("transcript") or payload.get("text") or ""
     caller = (payload.get("remoteNumber") or payload.get("caller") or payload.get("number") or "unknown").strip()
     call_id = payload.get("call_id") or str(uuid.uuid4())
-    call_data = payload.get("call_data")
-    if not call_data:
-        call_data = {
-            "agent_name": payload.get("agent_name", "—"),
-            "customer_name": payload.get("customer_name", "—"),
-            "customer_number": payload.get("customer_number", caller or "—"),
-            "customer_email": payload.get("customer_email", "—"),
-            "concerns": payload.get("concerns", []),
-            "tasks": payload.get("tasks", []),
-        }
+    call_data = payload.get("call_data") or _build_call_data(payload, caller)
     for target in targets:
         _record_call_event(
             call_id=call_id,
@@ -835,6 +856,28 @@ def placetel_v2_transcripts():
 
     payload["admin_tenant"] = admin_tenant
     payload["forward_number"] = forward_number
+    if caller:
+        V2_BY_CALLER[caller] = payload
+        active_call_id = LAST_ACTIVE_BY_NUMBER.get(caller)
+        if active_call_id:
+            _record_call_event(
+                call_id=active_call_id,
+                caller=caller,
+                state="connected",
+                transcript="",
+                remote_number=caller,
+                display_name="",
+                event_data={
+                    "summary": payload.get("summary"),
+                    "call_data": _build_call_data(payload, caller),
+                    "agent_name": payload.get("agent_name"),
+                    "customer_name": payload.get("customer_name"),
+                    "customer_number": payload.get("customer_number"),
+                    "customer_email": payload.get("customer_email"),
+                    "concerns": payload.get("concerns"),
+                    "tasks": payload.get("tasks"),
+                },
+            )
 
     assignment = V2_ASSIGNMENTS.get(forward_number)
     if assignment:
