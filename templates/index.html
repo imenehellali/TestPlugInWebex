@@ -232,7 +232,7 @@
     }
 
     function initStructuredCard({ name = '—', number = '—', email = '—', agent = '—' } = {}) {
-      liveModel = { name, number, email, agent };
+      liveModel = { name, number, email, agent, concerns: [], tasks: [] };
       liveTx.innerHTML = `
     <div class="tx-card" aria-live="polite" aria-atomic="false">
       <div class="tx-grid">
@@ -271,15 +271,42 @@
     }
     function addConcernLines(text) {
       if (!text || !text.trim()) return;
-      const list = document.getElementById('listConcerns');
-      const parts = text.split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/).map(s => s.trim()).filter(Boolean);
-      for (const p of parts) {
+      addListItems('listConcerns', text);
+    }
+
+    function addListItems(listId, values) {
+      const list = document.getElementById(listId);
+      if (!list) return;
+      const items = Array.isArray(values)
+        ? values
+        : String(values || '')
+          .split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/)
+          .map(s => s.trim())
+          .filter(Boolean);
+      for (const p of items) {
         const li = document.createElement('li');
         li.textContent = p;
         list.appendChild(li);
       }
-      // keep scrolled to bottom
       liveTx.scrollTop = liveTx.scrollHeight;
+    }
+
+    function applyStructuredData(data = {}) {
+      if (!data) return;
+      const name = data.customer_name || data.name;
+      const number = data.customer_number || data.number;
+      const email = data.customer_email || data.email;
+      const agent = data.agent_name || data.agent;
+
+      if (name) document.getElementById('fldName').textContent = name;
+      if (number) document.getElementById('fldNumber').textContent = number;
+      if (email) document.getElementById('fldEmail').textContent = email;
+      if (agent) document.getElementById('fldAgent').textContent = agent;
+
+      const concerns = data.concerns || data.concern;
+      const tasks = data.tasks || data.task;
+      if (concerns && concerns.length) addListItems('listConcerns', concerns);
+      if (tasks && tasks.length) addListItems('listTasks', tasks);
     }
 
 
@@ -351,11 +378,15 @@
           email: '—',
           agent: '—'
         });
+        const eventData = p.call_data || p;
+        applyStructuredData(eventData);
       } else {
         liveIdle.classList.add('hidden');
         noLiveTx.classList.add('hidden');
         txSkeleton.classList.add('hidden');
         liveTx.classList.remove('hidden');
+        const eventData = p.call_data || p;
+        applyStructuredData(eventData);
       }
 
       if (p.transcript && p.transcript.trim()) addConcernLines(p.transcript);

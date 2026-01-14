@@ -49,7 +49,6 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # in-memory store; persisted on call end
-<<<<<<< HEAD
 CALL_LOGS: dict[str, dict] = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
 AUTH_TOKENS: dict[str, dict] = {}
 AUTH_V2: dict[str, dict] = {}
@@ -59,6 +58,7 @@ USER_ADMIN: dict[str, str] = {}
 CALL_HISTORY: list[dict] = []
 
 V2_ASSIGNMENTS: dict[str, dict] = {}  # forward_number -> {user_id, call_id, assigned_at}
+V2_BY_CALLER: dict[str, dict] = {}
 
 
 MIDDLEWARE = PlacetelAIMiddleware(ttl_minutes=30)
@@ -143,14 +143,11 @@ def handle_leave(data):
         print(f"User {user_id} left room")
 
 
-=======
-CALL_LOGS = {}  # {call_id: {caller, created, events:[{timestamp,state,transcript}], recording_url?}}
-CALL_HISTORY = []  # [{name, number, time, type, callSessionId, ...}]
-
-def _bearer():
-    """Get the Webex bearer token from environment or default"""
+def _bearer() -> str:
+    """Get the Webex bearer token from environment or default."""
     return WEBEX_BEARER
->>>>>>> origin/codex/ensure-webhook-service-payload-format
+
+
 @app.after_request
 def set_headers(resp):
     csp = "frame-ancestors 'self' https://*.webex.com https://*.webexcontent.com https://*.cisco.com"
@@ -202,6 +199,23 @@ def simulate():
     transcript = data.get("transcript", "")
     rec_url = data.get("recording_url")  # optional, if you wire webhooks later
 
+    event_data = {}
+    if state == "connected":
+        stored = V2_BY_CALLER.get(caller)
+        if stored:
+            event_data = {
+                "summary": stored.get("summary"),
+                "call_data": _build_call_data(stored, caller),
+                "agent_name": stored.get("agent_name"),
+                "customer_name": stored.get("customer_name"),
+                "customer_number": stored.get("customer_number"),
+                "customer_email": stored.get("customer_email"),
+                "concerns": stored.get("concerns"),
+                "tasks": stored.get("tasks"),
+            }
+    elif state in {"ended", "completed", "hangup"} and caller:
+        V2_BY_CALLER.pop(caller, None)
+
     _record_call_event(
         call_id=call_id,
         caller=caller,
@@ -210,6 +224,7 @@ def simulate():
         remote_number=caller,
         display_name=display_name,
         recording_url=rec_url,
+        event_data=event_data,
     )
 
     # on end: persist locally
@@ -238,7 +253,7 @@ def _persist_call_assets(call_id: str, entry: dict):
     # file name like: +49221xxxxxx_<shortId>_2025-10-28.json
     caller = (entry.get("caller") or "unknown").replace(" ", "")
     short = call_id[:8]
-    stamp = datetime.utcnow().strftime("%Y-%m-%d")
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     base = f"{caller}_{short}_{stamp}"
 
     # transcript JSON and text
@@ -353,14 +368,10 @@ def ingest():
 
     return jsonify({"error": "nothing ingested"}), 400
 
-<<<<<<< HEAD
-
-def _bearer():
-    # for dev: valid for each 12h to modify each log in
-    return os.environ.get(
-        "WEBEX_USER_TOKEN",
-        "ZWM2OTZkMTgtZjg2MS00ZmQ5LTg4NzItYTk4YTE2MjE5Nzc0YmQ1N2ViYjUtZDA0_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
-    )
+def _external_base_url() -> str:
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host = request.headers.get("X-Forwarded-Host", request.host)
+    return f"{scheme}://{host}".rstrip("/")
 
 
 def _record_call_event(
@@ -373,12 +384,14 @@ def _record_call_event(
     display_name: str | None = None,
     recording_url: str | None = None,
     room: str | None = None,
+    event_data: dict | None = None,
 ):
+    event_data = event_data or {}
     entry = CALL_LOGS.setdefault(
         call_id,
         {
             "caller": caller,
-            "created": datetime.utcnow().isoformat() + "Z",
+            "created": datetime.now(timezone.utc).isoformat(),
             "events": [],
         },
     )
@@ -393,7 +406,7 @@ def _record_call_event(
 
     entry["events"].append(
         {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "state": state,
             "transcript": transcript,
         }
@@ -408,15 +421,35 @@ def _record_call_event(
             "displayName": display_name or "",
             "state": state,
             "transcript": transcript,
+            "summary": event_data.get("summary"),
+            "call_data": event_data.get("call_data"),
+            "agent_name": event_data.get("agent_name"),
+            "customer_name": event_data.get("customer_name"),
+            "customer_number": event_data.get("customer_number"),
+            "customer_email": event_data.get("customer_email"),
+            "concerns": event_data.get("concerns"),
+            "tasks": event_data.get("tasks"),
         },
         room=room,
     )
+
+
+def _build_call_data(payload: dict, caller: str) -> dict:
+    return {
+        "agent_name": payload.get("agent_name", "—"),
+        "customer_name": payload.get("customer_name", "—"),
+        "customer_number": payload.get("customer_number", caller or "—"),
+        "customer_email": payload.get("customer_email", "—"),
+        "concerns": payload.get("concerns", []),
+        "tasks": payload.get("tasks", []),
+    }
 
 
 def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = "connected"):
     transcript = payload.get("transcript") or payload.get("text") or ""
     caller = (payload.get("remoteNumber") or payload.get("caller") or payload.get("number") or "unknown").strip()
     call_id = payload.get("call_id") or str(uuid.uuid4())
+    call_data = payload.get("call_data") or _build_call_data(payload, caller)
     for target in targets:
         _record_call_event(
             call_id=call_id,
@@ -426,6 +459,16 @@ def _emit_transcript_to_targets(targets: list[str], payload: dict, state: str = 
             remote_number=payload.get("remoteNumber") or payload.get("number") or caller,
             display_name=payload.get("displayName") or payload.get("display_name") or "",
             room=target,
+            event_data={
+                "summary": payload.get("summary"),
+                "call_data": call_data,
+                "agent_name": payload.get("agent_name"),
+                "customer_name": payload.get("customer_name"),
+                "customer_number": payload.get("customer_number"),
+                "customer_email": payload.get("customer_email"),
+                "concerns": payload.get("concerns"),
+                "tasks": payload.get("tasks"),
+            },
         )
 
 
@@ -450,20 +493,48 @@ def _match_secret_key(token: str, admin_tenant: str) -> bool:
     return False
 
 
-def _require_v2_bearer(admin_tenant: str):
+def _get_bearer_token() -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        return False
+        return None
     token = auth_header.split(" ", 1)[1].strip()
-    return _match_secret_key(token, admin_tenant)
+    return token or None
 
 
-@app.route("/api/calls/history")
-def api_calls_history():
-    # Webhook-fed history store
-    return jsonify({"items": CALL_HISTORY})
+def _extract_admin_tenant_from_bearer() -> str | None:
+    token = _get_bearer_token()
+    if not token:
+        return None
+    for secret in _allowed_secret_keys():
+        if len(secret) != 16:
+            continue
+        if token.startswith(secret) and len(token) > len(secret):
+            return token[len(secret):]
+    return None
 
-=======
+
+def _require_v2_bearer(admin_tenant: str):
+    token = _get_bearer_token()
+    return _match_secret_key(token or "", admin_tenant)
+
+
+def _resolve_forward_number(payload: dict, caller: str) -> str:
+    candidates = [
+        payload.get("forward_number"),
+        payload.get("called_number"),
+        payload.get("dialed_number"),
+        payload.get("local_number"),
+        payload.get("to"),
+        payload.get("target_number"),
+        payload.get("queue_number"),
+        payload.get("customer_number"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return caller.strip() if caller else ""
+
+
 def _store_history_payload(payload):
     if payload is None:
         return 0
@@ -481,7 +552,9 @@ def _store_history_payload(payload):
 
     normalized = [item for item in items if isinstance(item, dict)]
     CALL_HISTORY.extend(normalized)
+    _write_json(HISTORY_PATH, CALL_HISTORY)
     return len(normalized)
+
 
 @app.post("/api/webhooks/calls/history")
 def webhook_calls_history():
@@ -490,6 +563,7 @@ def webhook_calls_history():
     if not stored:
         return jsonify({"error": "payload must contain item or items"}), 400
     return jsonify({"ok": True, "stored": stored}), 200
+
 
 @app.route("/api/calls/history")
 def api_calls_history():
@@ -515,7 +589,6 @@ def api_calls_history():
         if "item" in data:
             return jsonify({"items": [data.get("item")]})
     return jsonify({"items": []})
->>>>>>> origin/codex/ensure-webhook-service-payload-format
 
 @app.route("/api/cdr_feed")
 def api_cdr_feed():
@@ -568,11 +641,10 @@ def list_recordings_by_session():
     if not session_id:
         return jsonify({"items": []}), 200
     # Converged Recordings supports filtering by callSessionId via query "callSessionId"
-<<<<<<< HEAD
     r = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings",
         params={"callSessionId": session_id},
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     )
     return (r.text, r.status_code, {"Content-Type": "application/json"})
@@ -582,36 +654,20 @@ def list_recordings_by_session():
 def recordings_details(rec_id):
     r = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     )
-=======
-    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings",
-                     params={"callSessionId": session_id},
-                     headers=_wbx_headers(), timeout=20)
-    return (r.text, r.status_code, {"Content-Type":"application/json"})
-
-@app.get("/api/recordings/<rec_id>")
-def recordings_details(rec_id):
-    r = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                     headers=_wbx_headers(), timeout=20)
->>>>>>> origin/codex/ensure-webhook-service-payload-format
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
 
 @app.get("/api/recordings/<rec_id>/download")
 def recordings_download(rec_id):
     # proxy the temporary direct link so the browser can save/play
-<<<<<<< HEAD
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     ).json()
-=======
-    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_wbx_headers(), timeout=20).json()
->>>>>>> origin/codex/ensure-webhook-service-payload-format
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -627,16 +683,11 @@ def recordings_download(rec_id):
 @app.post("/api/recordings/<rec_id>/transcribe")
 def recordings_transcribe(rec_id):
     # fetch audio -> save -> transcribe -> summarize -> return text
-<<<<<<< HEAD
     info = requests.get(
         f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-        headers={"Authorization": f"Bearer {_bearer()}"},
+        headers=_wbx_headers(),
         timeout=20,
     ).json()
-=======
-    info = requests.get(f"{WEBEX_BASE_API}/converged/recordings/{rec_id}",
-                        headers=_wbx_headers(), timeout=20).json()
->>>>>>> origin/codex/ensure-webhook-service-payload-format
     url = (info.get("temporaryDirectDownloadLinks") or {}).get("audioDownloadLink")
     if not url:
         return jsonify({"error": "no audioDownloadLink"}), 404
@@ -714,7 +765,7 @@ def auth_generate():
     AUTH_TOKENS[target_id] = auth_data
     _write_json(AUTH_DIR / f"{target_id}.json", auth_data)
 
-    base = request.host_url.rstrip("/")
+    base = _external_base_url()
     post_url = f"{base}/api/post/{target_id}"
     return jsonify({"post_url": post_url, "version": "v1"})
 
@@ -746,7 +797,7 @@ def auth_generate_v2():
     USER_ADMIN[target_id] = admin_tenant
     _write_json(USER_ADMIN_PATH, USER_ADMIN)
 
-    base = request.host_url.rstrip("/")
+    base = _external_base_url()
     post_url = f"{base}/api/placetel/v2/transcripts"
     return jsonify(
         {
@@ -757,7 +808,7 @@ def auth_generate_v2():
     )
 
 
-@app.post("/api/post/<token>")
+@app.route("/api/post/<token>", methods=["POST"], strict_slashes=False)
 def post_transcript_v1(token: str):
     auth = AUTH_TOKENS.get(token)
     if not auth:
@@ -778,22 +829,35 @@ def post_transcript_v1(token: str):
     return jsonify({"ok": True, "version": "v1"})
 
 
-@app.post("/api/placetel/v2/transcripts")
+@app.route("/api/placetel/v2/transcripts", methods=["POST"], strict_slashes=False)
 def placetel_v2_transcripts():
     payload = request.get_json(force=True)
-    forward_number = (payload.get("forward_number") or "").strip()
     admin_tenant = (payload.get("admin_tenant") or "").strip()
 
-    if not forward_number:
-        return jsonify({"error": "forward_number required"}), 400
     if not admin_tenant:
-        return jsonify({"error": "admin_tenant required"}), 400
+        admin_tenant = _extract_admin_tenant_from_bearer() or ""
     if not any(len(key) == 16 for key in _allowed_secret_keys()):
         return jsonify({"error": "PLACETEL_SECRET_KEY(S) must include a 16 character key"}), 500
+    if not admin_tenant:
+        return jsonify({"error": "admin_tenant required"}), 400
     if not _require_v2_bearer(admin_tenant):
         return jsonify({"error": "invalid bearer"}), 403
 
     MIDDLEWARE.purge()
+
+    caller = (payload.get("caller") or "").strip()
+    summary = (payload.get("summary") or "").strip()
+    forward_number = _resolve_forward_number(payload, caller)
+
+    if not caller or not summary:
+        return jsonify({"error": "caller and summary required"}), 400
+    if not forward_number:
+        return jsonify({"error": "forward_number required"}), 400
+
+    payload["admin_tenant"] = admin_tenant
+    payload["forward_number"] = forward_number
+    if caller:
+        V2_BY_CALLER[caller] = payload
 
     assignment = V2_ASSIGNMENTS.get(forward_number)
     if assignment:
@@ -840,24 +904,6 @@ def webhook_call_assigned():
         _emit_transcript_to_targets([user_id], entry["payload"])
         return jsonify({"ok": True, "delivered": True})
     return jsonify({"ok": True, "delivered": False})
-
-
-@app.post("/api/webhooks/calls/history")
-def webhook_calls_history():
-    payload = request.get_json(force=True)
-    items = payload.get("items") or []
-    if payload.get("item"):
-        items = [payload["item"]]
-
-    if not isinstance(items, list) or not items:
-        return jsonify({"error": "items required"}), 400
-
-    for item in items:
-        item.setdefault("received_at", datetime.now(timezone.utc).isoformat())
-        CALL_HISTORY.append(item)
-
-    _write_json(HISTORY_PATH, CALL_HISTORY)
-    return jsonify({"ok": True, "count": len(items)})
 
 
 if __name__ == "__main__":
