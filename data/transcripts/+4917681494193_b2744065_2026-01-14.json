@@ -1,0 +1,36 @@
+{
+  "caller": "+4917681494193",
+  "created": "2026-01-14T11:05:50.169075+00:00",
+  "events": [
+    {
+      "timestamp": "2026-01-14T11:05:50.169109+00:00",
+      "state": "started",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2026-01-14T11:05:50.217022+00:00",
+      "state": "started",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2026-01-14T11:05:58.321301+00:00",
+      "state": "connecting",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2026-01-14T11:05:58.435586+00:00",
+      "state": "connected",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2026-01-14T11:06:07.948420+00:00",
+      "state": "ended",
+      "transcript": ""
+    },
+    {
+      "timestamp": "2026-01-14T11:06:07.949261+00:00",
+      "state": "disconnecting",
+      "transcript": ""
+    }
+  ]
+}

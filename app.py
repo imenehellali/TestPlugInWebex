@@ -23,7 +23,7 @@ WEBEX_BASE_API = "https://webexapis.com/v1"
 ##### -------- TO MODIFY EVERY LOG IN ----------------------
 WEBEX_BEARER = os.environ.get(
     "WEBEX_BEARER",
-    "Y2FjODczYTgtYzBmMi00ZWQ5LWFhZjctMWEyYjFiNWYyZWRjNmEwYzVhNjAtYjg1_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
+    "NmNlNDkxNzQtNzg5Zi00MjQzLThlN2UtNjczZDFhNzllOTM0NTY5OTUwYmMtZjgw_PE93_43fc283b-bec8-41ed-87dd-6050b49fb6ba",
 )
 SIMULATOR_BASE = os.environ.get("SIM_BASE", "").rstrip("/")  # e.g. https://<sim-ngrok>.ngrok-free.app
 PLACETEL_SECRET_KEY = os.environ.get("PLACETEL_SECRET_KEY", "CHANGE_ME_16CHAR")
